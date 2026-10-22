@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # kogo_voice_learning
 
 A new Flutter project.
@@ -15,3 +16,6 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+=======
+# kogo_learning
+>>>>>>> 8033239db0f1c503a8af14fbda3f539bad75a6a9
