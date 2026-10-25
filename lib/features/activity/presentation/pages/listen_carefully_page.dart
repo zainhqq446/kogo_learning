@@ -13,10 +13,14 @@ import '../../../../services/auth/session_manager.dart';
 
 class ListenCarefullyPage extends StatefulWidget {
   final LessonModel lesson;
+  final List<QuestionModel>? questionsOverride;
+  final VoidCallback? onCompleted;
 
   const ListenCarefullyPage({
     super.key,
     required this.lesson,
+    this.questionsOverride,
+    this.onCompleted,
   });
 
   @override
@@ -42,7 +46,11 @@ class _ListenCarefullyPageState extends State<ListenCarefullyPage> {
   @override
   void initState() {
     super.initState();
-    _questionsFuture = _questionRepository.getByLessonId(widget.lesson.id!).then((questions) {
+    final questionsSource = widget.questionsOverride != null
+        ? Future.value(widget.questionsOverride!)
+        : _questionRepository.getByLessonId(widget.lesson.id!);
+
+    _questionsFuture = questionsSource.then((questions) {
       if (questions.isNotEmpty) {
         _introTimer = Timer(const Duration(milliseconds: 300), () {
           if (mounted && _currentIndex == 0) {
@@ -54,6 +62,7 @@ class _ListenCarefullyPageState extends State<ListenCarefullyPage> {
     });
   }
 
+
   void _prepareOptions(QuestionModel currentQuestion, List<QuestionModel> allQuestions) {
     if (_currentOptions.isNotEmpty) return;
 
@@ -61,19 +70,20 @@ class _ListenCarefullyPageState extends State<ListenCarefullyPage> {
 
     // 1. Ambil opsi pengecoh dari pertanyaan lain dalam lesson yang memiliki gambar valid
     for (final q in allQuestions) {
-      if (optionsSet.length >= 3) break;
-      if (q.targetText != currentQuestion.targetText && ImageDatasetCatalog.hasImage(q.targetText)) {
+      if (optionsSet.length >= 4) break;
+      if (q.targetText.toLowerCase() != currentQuestion.targetText.toLowerCase() &&
+          ImageDatasetCatalog.hasImage(q.targetText)) {
         optionsSet.add(q.targetText);
       }
     }
 
-    // 2. Jika belum cukup, ambil dari seluruh dataset gambar resmi lokal yang pasti memiliki aset gambar valid
+    // 2. Jika belum cukup 4 pilihan, ambil dari katalog dataset gambar resmi yang valid
     final availableDatasetWords = ImageDatasetCatalog.allWords;
     final random = Random(currentQuestion.id ?? currentQuestion.orderIndex);
     final shuffledWords = List<String>.from(availableDatasetWords)..shuffle(random);
 
     for (final candidate in shuffledWords) {
-      if (optionsSet.length >= 3) break; // 1 jawaban benar + 2 distraktor gambar valid
+      if (optionsSet.length >= 4) break; // Tepat 4 pilihan bergambar (1 target + 3 distraktor)
       if (candidate.toLowerCase() != currentQuestion.targetText.toLowerCase() &&
           ImageDatasetCatalog.hasImage(candidate)) {
         optionsSet.add(candidate);
@@ -203,6 +213,11 @@ class _ListenCarefullyPageState extends State<ListenCarefullyPage> {
       targetWord: '',
     ));
 
+    if (widget.onCompleted != null) {
+      widget.onCompleted!();
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -223,6 +238,7 @@ class _ListenCarefullyPageState extends State<ListenCarefullyPage> {
       },
     );
   }
+
 
   @override
   Widget build(BuildContext context) {

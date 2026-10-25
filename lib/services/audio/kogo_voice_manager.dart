@@ -33,6 +33,7 @@ class KogoVoiceManager {
       'matching',
       'listen_carefully',
       'missing_letter',
+      'word_assembly',
     };
     if (!dynamicIntroGames.contains(gameType)) {
       final introAudio = _audioManager.gameIntroAudios[gameType];
@@ -44,6 +45,17 @@ class KogoVoiceManager {
 
     final voiceMessage = _selector.selectGameIntro(gameType);
     await _playVoiceMessage(voiceMessage);
+  }
+
+  /// Memainkan sapaan pembuka personal ramah anak dengan menyebutkan nama anak
+  Future<void> playGreeting(String childName) async {
+    final greetings = [
+      'Halo $childName! Senang sekali bertemu denganmu hari ini. Yuk belajar bersuara bersama Kogo!',
+      'Hai $childName! Wah, kamu siap untuk petualangan seru hari ini? Ayo kita mulai!',
+      'Halo teman kecil Kogo, $childName! Kogo bangga kamu semangat belajar hari ini!',
+    ];
+    final selectedText = greetings[childName.hashCode.abs() % greetings.length];
+    await _controller.speakDynamic(selectedText);
   }
 
   /// Memainkan dorongan semangat atau bantuan pemikiran saat anak mengamati

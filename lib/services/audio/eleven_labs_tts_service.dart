@@ -83,13 +83,41 @@ class ElevenLabsTtsService {
   ElevenLabsVoiceSettings get settings => _settings;
   bool get hasApiKey => _apiKey.isNotEmpty;
 
+  static String sanitizeTextForIndonesianSpeech(String rawText) {
+    var text = rawText.trim();
+    if (text.isEmpty) return '';
+
+    String? emotionTag;
+    final tagMatch = RegExp(r'^(\[[a-zA-Z]+\])\s*').firstMatch(text);
+    if (tagMatch != null) {
+      emotionTag = tagMatch.group(1);
+      text = text.substring(tagMatch.end).trim();
+    }
+
+    // Hilangkan strip pemisah suku kata ("A - pel" -> "Apel", "Ba - ju" -> "Baju")
+    text = text.replaceAll(RegExp(r'(?<=\w)\s*-\s*(?=\w)'), '');
+    text = text.replaceAll('-', ' ');
+
+    // Hilangkan simbol markdown dan tanda kurung
+    text = text.replaceAll(RegExp(r'[*_#`~\[\]{}()]'), '');
+
+    // Normalisasi spasi
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    if (emotionTag != null && emotionTag.isNotEmpty) {
+      return '$emotionTag $text'.trim();
+    }
+    return text;
+  }
+
   /// Mensintesis teks menjadi audio MP3 bytes via ElevenLabs Text-to-Speech endpoint.
   Future<Uint8List?> synthesizeSpeech(
     String text, {
     ElevenLabsVoiceSettings? customSettings,
   }) async {
-    final cleanText = text.trim();
+    final cleanText = sanitizeTextForIndonesianSpeech(text);
     if (cleanText.isEmpty) return null;
+
 
     final effectiveSettings = customSettings ?? _settings;
     final cacheKey = '$cleanText:$_voiceId:$_modelId:${effectiveSettings.stability}:${effectiveSettings.style}:${effectiveSettings.speed}';

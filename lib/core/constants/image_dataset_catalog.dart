@@ -4,12 +4,22 @@ class ImageDatasetEntry {
   final String stageFolder;
   final String category;
   final String assetPath;
+  final int letterCount;
+  final int syllableCount;
+  final int difficultyScore;
+  final String difficultyLevel; // 'easy', 'medium', 'hard'
+  final bool hasPhonemeCluster;
 
   const ImageDatasetEntry({
     required this.word,
     required this.stageFolder,
     required this.category,
     required this.assetPath,
+    this.letterCount = 0,
+    this.syllableCount = 0,
+    this.difficultyScore = 1,
+    this.difficultyLevel = 'easy',
+    this.hasPhonemeCluster = false,
   });
 
   /// Mengembalikan nomor stage berdasarkan folder:
@@ -2742,28 +2752,45 @@ class ImageDatasetCatalog {
   static int get totalCount => _catalog.length;
 
   /// Mencari path aset gambar berdasarkan kata target.
+  /// Mencari path aset gambar berdasarkan kata target.
   /// Menerima teks kotor (misal "Bu - ku", "A - Apel", "  Pisang  ") dan menormalisasikannya.
   static String? findAssetPath(String? rawTarget) {
     if (rawTarget == null) return null;
-    final normalized = normalizeWord(rawTarget);
-    if (normalized.isEmpty) return null;
+    final trimmed = rawTarget.trim().toLowerCase();
+    if (trimmed.isEmpty) return null;
 
-    final directMatch = _catalog[normalized];
+    // 1. Cek langsung dengan key asli (misal: "kupu-kupu", "pisang")
+    final directMatch = _catalog[trimmed];
     if (directMatch != null) return directMatch.assetPath;
 
-    // Jika format pasangan suku kata seperti "A - Apel" atau "Bu - ku"
+    // 2. Cek dengan teks yang sudah dinormalisasi (menghapus tanda baca/spasi ekstra)
+    final normalized = normalizeWord(rawTarget);
+    if (normalized.isNotEmpty) {
+      final normalizedMatch = _catalog[normalized];
+      if (normalizedMatch != null) return normalizedMatch.assetPath;
+    }
+
+    // 3. Jika format pasangan suku kata seperti "A - Apel" atau "Bu - ku"
     if (rawTarget.contains('-')) {
-      final segments = rawTarget.split('-').map((s) => normalizeWord(s)).where((s) => s.isNotEmpty).toList();
+      final segments = rawTarget.split('-').map((s) => s.trim().toLowerCase()).where((s) => s.isNotEmpty).toList();
       // Periksa dari belakang (biasanya objek utuh ada di akhir seperti "A - Apel")
       for (final seg in segments.reversed) {
         if (_catalog.containsKey(seg)) {
           return _catalog[seg]!.assetPath;
+        }
+        final normSeg = normalizeWord(seg);
+        if (_catalog.containsKey(normSeg)) {
+          return _catalog[normSeg]!.assetPath;
         }
       }
       // Jika segmen digabung menjadi satu kata (misal "Bu" + "ku" -> "buku")
       final combined = segments.join();
       if (_catalog.containsKey(combined)) {
         return _catalog[combined]!.assetPath;
+      }
+      final normCombined = normalizeWord(combined);
+      if (_catalog.containsKey(normCombined)) {
+        return _catalog[normCombined]!.assetPath;
       }
     }
 
@@ -2773,23 +2800,36 @@ class ImageDatasetCatalog {
   /// Menemukan entri lengkap berdasarkan kata target
   static ImageDatasetEntry? findEntry(String? rawTarget) {
     if (rawTarget == null) return null;
-    final normalized = normalizeWord(rawTarget);
-    if (normalized.isEmpty) return null;
+    final trimmed = rawTarget.trim().toLowerCase();
+    if (trimmed.isEmpty) return null;
 
-    if (_catalog.containsKey(normalized)) {
-      return _catalog[normalized];
+    final directMatch = _catalog[trimmed];
+    if (directMatch != null) return directMatch;
+
+    final normalized = normalizeWord(rawTarget);
+    if (normalized.isNotEmpty) {
+      final normalizedMatch = _catalog[normalized];
+      if (normalizedMatch != null) return normalizedMatch;
     }
 
     if (rawTarget.contains('-')) {
-      final segments = rawTarget.split('-').map((s) => normalizeWord(s)).where((s) => s.isNotEmpty).toList();
+      final segments = rawTarget.split('-').map((s) => s.trim().toLowerCase()).where((s) => s.isNotEmpty).toList();
       for (final seg in segments.reversed) {
         if (_catalog.containsKey(seg)) {
           return _catalog[seg];
+        }
+        final normSeg = normalizeWord(seg);
+        if (_catalog.containsKey(normSeg)) {
+          return _catalog[normSeg];
         }
       }
       final combined = segments.join();
       if (_catalog.containsKey(combined)) {
         return _catalog[combined];
+      }
+      final normCombined = normalizeWord(combined);
+      if (_catalog.containsKey(normCombined)) {
+        return _catalog[normCombined];
       }
     }
 
@@ -2807,5 +2847,63 @@ class ImageDatasetCatalog {
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]'), '')
         .trim();
+  }
+
+  /// Menghitung skor kesulitan kata berdasarkan panjang kata, jumlah suku kata, dan kluster fonemik
+  static int calculateDifficultyScore(String rawWord) {
+    final w = normalizeWord(rawWord);
+    if (w.isEmpty) return 1;
+
+    // Hitung suku kata berdasarkan kelompok vokal
+    final vowelMatches = RegExp(r'[aiueo]+').allMatches(w);
+    final syllableCount = vowelMatches.isEmpty ? 1 : vowelMatches.length;
+
+    int score = 1;
+    if (syllableCount == 2) {
+      score = 2;
+    } else if (syllableCount == 3) {
+      score = 5;
+    } else if (syllableCount >= 4) {
+      score = 7;
+    }
+
+    // Periksa konsonan kluster yang lebih sulit diucapkan anak (ng, ny, sy, kh, tr, kr, bl, cl, pr, br, pl, st, sp, sk)
+    final hasCluster = RegExp(r'(ng|ny|sy|kh|tr|kr|bl|cl|pr|br|pl|st|sp|sk)').hasMatch(w);
+    if (hasCluster) score += 2;
+
+    if (w.length >= 8) {
+      score += 2;
+    } else if (w.length <= 4) {
+      score -= 1;
+    }
+
+    return score.clamp(1, 10);
+  }
+
+  /// Menentukan tingkat kesulitan kata: 'easy', 'medium', 'hard'
+  static String getDifficultyLevel(String rawWord) {
+    final score = calculateDifficultyScore(rawWord);
+    if (score <= 3) return 'easy';
+    if (score <= 6) return 'medium';
+    return 'hard';
+  }
+
+  /// Mendapatkan semua entri dengan tingkat kesulitan tertentu
+  static List<ImageDatasetEntry> getEntriesByDifficulty(String level) {
+    final targetLevel = level.toLowerCase();
+    return _catalog.values.where((e) {
+      final actualLevel = getDifficultyLevel(e.word);
+      return actualLevel == targetLevel;
+    }).toList();
+  }
+
+  /// Mendapatkan daftar kata berdasarkan tingkat kesulitan
+  static List<String> getWordsByDifficulty(String level) {
+    return getEntriesByDifficulty(level).map((e) => e.word).toList();
+  }
+
+  /// Mendapatkan semua entri berdasarkan nomor stage kurikulum (1..4)
+  static List<ImageDatasetEntry> getEntriesByStage(int stageNumber) {
+    return _catalog.values.where((e) => e.stageNumber == stageNumber).toList();
   }
 }

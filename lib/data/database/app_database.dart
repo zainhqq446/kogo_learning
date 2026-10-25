@@ -9,7 +9,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const String _databaseName = 'kogo_voice_learning.db';
-  static const int _databaseVersion = 9;
+  static const int _databaseVersion = 10;
 
   Database? _database;
 
@@ -68,9 +68,18 @@ class AppDatabase {
         if (oldVersion < 9) {
           await _createActivityProgressTable(db);
         }
+        if (oldVersion < 10) {
+          try {
+            await db.execute('ALTER TABLE children ADD COLUMN school_name TEXT');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE children ADD COLUMN remote_user_id TEXT');
+          } catch (_) {}
+        }
       },
     );
   }
+
 
   Future<void> _migrateToV6(Database db) async {
     // Tambahkan kolom sinkronisasi ke research_sessions
@@ -218,17 +227,17 @@ class AppDatabase {
         'listen_repeat': [
           {'target_text': 'Buku', 'hint_text': 'Ucapkan kata Bu-ku'},
           {'target_text': 'Bola', 'hint_text': 'Ucapkan kata Bo-la'},
-          {'target_text': 'Meja', 'hint_text': 'Ucapkan kata Me-ja'},
-          {'target_text': 'Sapi', 'hint_text': 'Ucapkan kata Sa-pi'},
-          {'target_text': 'Kaki', 'hint_text': 'Ucapkan kata Ka-ki'},
+          {'target_text': 'Apel', 'hint_text': 'Ucapkan kata A-pel'},
+          {'target_text': 'Roti', 'hint_text': 'Ucapkan kata Ro-ti'},
+          {'target_text': 'Topi', 'hint_text': 'Ucapkan kata To-pi'},
         ],
         'find_object': [
           {'target_text': 'Buku', 'hint_text': 'Temukan gambar Buku'},
-          {'target_text': 'Meja', 'hint_text': 'Temukan gambar Meja'},
+          {'target_text': 'Apel', 'hint_text': 'Temukan gambar Apel'},
         ],
         'matching': [
           {'target_text': 'Bu - ku', 'hint_text': 'Pasangkan suku kata Bu dan ku'},
-          {'target_text': 'Me - ja', 'hint_text': 'Pasangkan suku kata Me dan ja'},
+          {'target_text': 'A - pel', 'hint_text': 'Pasangkan suku kata A dan pel'},
         ],
         'listen_carefully': [
           {'target_text': 'Buku', 'hint_text': 'Dengarkan lalu pilih kata Buku'},
@@ -236,7 +245,7 @@ class AppDatabase {
         ],
         'missing_letter': [
           {'target_text': 'Buku', 'hint_text': 'Lengkapi huruf yang hilang pada Buku'},
-          {'target_text': 'Meja', 'hint_text': 'Lengkapi huruf yang hilang pada Meja'},
+          {'target_text': 'Apel', 'hint_text': 'Lengkapi huruf yang hilang pada Apel'},
         ],
       },
       // Stage 3: Tiga Suku Kata
@@ -356,11 +365,14 @@ class AppDatabase {
         display_name TEXT NOT NULL,
         age INTEGER,
         pin_hash TEXT NOT NULL,
+        school_name TEXT,
+        remote_user_id TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     ''');
+
 
     await db.execute('''
       CREATE TABLE devices (
@@ -660,9 +672,6 @@ class AppDatabase {
         UNIQUE(child_id, lesson_id),
         FOREIGN KEY (child_id)
           REFERENCES children(id)
-          ON DELETE CASCADE,
-        FOREIGN KEY (lesson_id)
-          REFERENCES lessons(id)
           ON DELETE CASCADE
       )
     ''');

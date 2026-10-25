@@ -30,25 +30,26 @@ class _StagePageState extends State<StagePage> {
 
   void _loadStagesAndUnlockStatus() {
     _stagesFuture = _repository.getAll().then((stages) async {
-      final childId = _sessionManager.currentChild?.id ?? 1;
-      final unlockMap = <int, bool>{};
+      try {
+        final childId = _sessionManager.currentChild?.id ?? 1;
+        final entries = await Future.wait(stages.map((stage) async {
+          final isUnlocked = await _progressRepository.isStageUnlocked(
+            childId: childId,
+            stageOrderIndex: stage.orderIndex,
+          );
+          return MapEntry(stage.id ?? stage.orderIndex, isUnlocked);
+        }));
 
-      for (final stage in stages) {
-        final isUnlocked = await _progressRepository.isStageUnlocked(
-          childId: childId,
-          stageOrderIndex: stage.orderIndex,
-        );
-        unlockMap[stage.id ?? stage.orderIndex] = isUnlocked;
-      }
-
-      if (mounted) {
-        setState(() {
-          _stageUnlockStatus = unlockMap;
-        });
+        _stageUnlockStatus = Map.fromEntries(entries);
+      } catch (_) {
+        // Abaikan jika database ditutup saat widget test / teardown
       }
 
       return stages;
     });
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _openStage(StageModel stage, bool isUnlocked) {

@@ -11,6 +11,7 @@ import '../../../navigation/presentation/widgets/bottom_nav_bar.dart';
 import '../../../progress/presentation/pages/child_progress_page.dart';
 import '../../../speech/presentation/pages/kogo_voice_playground_page.dart';
 import '../../../stage/presentation/pages/stage_page.dart';
+import '../../../../services/audio/kogo_voice_manager.dart';
 import '../../../../services/sync/sync_service.dart';
 
 /// Halaman Home Kogo Voice Learning yang mengadopsi desain visual Figma (HomeScreen, RewardsScreen, ProfileScreen).
@@ -120,7 +121,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
-  void _openStageByIndex(int stageIndex) {
+  Future<void> _openStageByIndex(int stageIndex) async {
     if (_stages.isEmpty) {
       Navigator.push(
         context,
@@ -129,21 +130,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       return;
     }
 
-    if (stageIndex < _stages.length) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LessonPage(stage: _stages[stageIndex]),
-        ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LessonPage(stage: _stages.first),
-        ),
-      );
-    }
+    final targetStage = (stageIndex < _stages.length) ? _stages[stageIndex] : _stages.first;
+    if (!mounted) return;
+
+    // Pilihan kategori di Home langsung membuka Map pembelajaran kategori tersebut.
+    // Penguncian checkpoint diterapkan di dalam Map per akun anak.
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LessonPage(stage: targetStage),
+      ),
+    );
   }
 
   @override
@@ -346,27 +343,32 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       ),
                     );
                   },
-                  child: Container(
-                    width: 110,
-                    height: 110,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFDE047), Color(0xFFFB923C)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      KogoVoiceManager.instance.playGreeting(childName);
+                    },
+                    child: Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFDE047), Color(0xFFFB923C)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text('🐻', style: TextStyle(fontSize: 54)),
                     ),
-                    alignment: Alignment.center,
-                    child: const Text('🐻', style: TextStyle(fontSize: 54)),
                   ),
                 ),
 
@@ -992,14 +994,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             child: Column(
               children: [
                 _buildProfileDetailRow(
-                  label: 'Nama',
+                  label: 'Nama Lengkap',
                   value: childName,
                   icon: Icons.person_outline_rounded,
                   colors: const [Color(0xFFC084FC), Color(0xFFF472B6)],
                 ),
                 const Divider(height: 24),
                 _buildProfileDetailRow(
-                  label: 'ID Peserta Riset',
+                  label: 'ID / Username Peserta',
                   value: childCode,
                   icon: Icons.badge_outlined,
                   colors: const [Color(0xFF60A5FA), Color(0xFF22D3EE)],
@@ -1011,6 +1013,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   icon: Icons.cake_outlined,
                   colors: const [Color(0xFFFB923C), Color(0xFFF87171)],
                 ),
+                if (_child?.schoolName != null && _child!.schoolName!.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  _buildProfileDetailRow(
+                    label: 'Sekolah / TK',
+                    value: _child!.schoolName!,
+                    icon: Icons.school_outlined,
+                    colors: const [Color(0xFF34D399), Color(0xFF059669)],
+                  ),
+                ],
               ],
             ),
           ),

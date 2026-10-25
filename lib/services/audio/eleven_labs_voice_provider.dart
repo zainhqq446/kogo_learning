@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'bgm_manager.dart';
 import 'eleven_labs_dialogue_session.dart';
 import 'eleven_labs_tts_service.dart';
 import 'speech_output_provider.dart';
@@ -67,6 +68,7 @@ class ElevenLabsVoiceProvider implements SpeechOutputProvider {
 
     _isPlaying = true;
     _isPlayingController.add(true);
+    await BgmManager.instance.duckForSpeech();
 
     try {
       final cleanPath = assetPath.startsWith('assets/')
@@ -87,6 +89,8 @@ class ElevenLabsVoiceProvider implements SpeechOutputProvider {
       if (kDebugMode) {
         debugPrint('[ElevenLabsVoiceProvider] playHuman error ($assetPath): $e');
       }
+    } finally {
+      await BgmManager.instance.restoreAfterSpeech();
       _isPlaying = false;
       _isPlayingController.add(false);
     }
@@ -94,12 +98,14 @@ class ElevenLabsVoiceProvider implements SpeechOutputProvider {
 
   @override
   Future<void> speakDynamicText(String text) async {
-    final cleanText = text.trim();
+    final cleanText = ElevenLabsTtsService.sanitizeTextForIndonesianSpeech(text);
     if (cleanText.isEmpty) return;
+
 
     await stop();
     _isPlaying = true;
     _isPlayingController.add(true);
+    await BgmManager.instance.duckForSpeech();
 
     try {
       final cacheKey = 'eleven_${_dialogueSession.voiceId}_$cleanText';
@@ -156,6 +162,7 @@ class ElevenLabsVoiceProvider implements SpeechOutputProvider {
         debugPrint('[ElevenLabsVoiceProvider] speakDynamicText error: $e');
       }
     } finally {
+      await BgmManager.instance.restoreAfterSpeech();
       _isPlaying = false;
       _isPlayingController.add(false);
     }

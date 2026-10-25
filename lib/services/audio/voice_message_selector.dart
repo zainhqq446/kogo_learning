@@ -234,6 +234,11 @@ class VoiceMessageSelector {
       'Dengarkan dulu dengan santai, lalu tirukan ya!',
       'Sekarang waktunya kita berlatih bicara dengan riang!',
     ],
+    'word_assembly': [
+      'Wah, huruf-hurufnya tersebar! Ayo kita susun menjadi kata yang utuh!',
+      'Yuk susun kepingan huruf ini sampai membentuk kata yang benar!',
+      'Sentuh huruf-hurufnya secara berurutan untuk menyusun katanya ya!',
+    ],
   };
 
   // ---------------------------------------------------------
@@ -244,6 +249,10 @@ class VoiceMessageSelector {
       'Menurutmu yang mana? Perhatikan baik-baik ya.',
       'Coba lihat sekeliling gambarnya, pelan-pelan saja.',
       'Ayo cari benda yang sesuai dengan kata tadi.',
+    ],
+    'word_assembly': [
+      'Perhatikan huruf pertama dan huruf berikutnya ya.',
+      'Ayo susun satu per satu, kamu pasti bisa!',
     ],
     'matching': [
       'Hmm... yang mana ya? Coba perhatikan baik-baik.',

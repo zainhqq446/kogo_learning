@@ -54,6 +54,7 @@ flutter:
     - assets/audio/words/
     - assets/audio/games/
     - assets/data/
+    - assets/images/
     - assets/images/words/
     - assets/dataset_gambar/
     - assets/dataset_gambar/1_dua_suku_kata/kata_benda/

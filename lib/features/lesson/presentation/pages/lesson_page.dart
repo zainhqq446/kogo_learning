@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import '../../../../data/models/lesson_model.dart';
 import '../../../../data/models/stage_model.dart';
 import '../../../../data/repositories/lesson_repository.dart';
-import '../../../activity/presentation/pages/find_object_page.dart';
-import '../../../activity/presentation/pages/listen_carefully_page.dart';
-import '../../../activity/presentation/pages/matching_page.dart';
-import '../../../activity/presentation/pages/missing_letter_page.dart';
-import '../../../activity/presentation/pages/question_page.dart';
+import '../../../../data/repositories/progress_repository.dart';
+import '../../../../services/auth/session_manager.dart';
 import '../../../progress/presentation/pages/child_progress_page.dart';
+import 'checkpoint_session_page.dart';
 
-/// Path Painter untuk menggambar jalur petualangan berkelok-kelok (seperti LessonMapScreen di Figma)
+
+
+/// Path Painter untuk menggambar jalur petualangan berkelok-kelok (seperti Duolingo Map)
 class _LearningPathPainter extends CustomPainter {
   final List<Offset> points;
 
@@ -65,7 +65,22 @@ class _LearningPathPainter extends CustomPainter {
   }
 }
 
-/// Halaman Lesson Map Petualangan Kogo (LessonPage) yang mengadopsi Figma LessonMapScreen.tsx
+/// Metadata checkpoint sesi campuran (Duolingo-style Unit Checkpoint)
+class CheckpointInfo {
+  final int number;
+  final String title;
+  final String subtitle;
+  final String badgeIcon;
+
+  const CheckpointInfo({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.badgeIcon,
+  });
+}
+
+/// Halaman Map Kategori Duolingo-style dengan Mixed-Game Checkpoints
 class LessonPage extends StatefulWidget {
   final StageModel stage;
 
@@ -80,18 +95,68 @@ class LessonPage extends StatefulWidget {
 
 class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateMixin {
   final LessonRepository _repository = LessonRepository();
+  final ProgressRepository _progressRepository = ProgressRepository();
 
   late Future<List<LessonModel>> _lessonsFuture;
   late final AnimationController _pulseController;
 
+  int _unlockedCheckpointCount = 1;
+  int _selectedCheckpointIndex = 0;
+
+  late final List<CheckpointInfo> _checkpoints;
+
+  static List<CheckpointInfo> _generateCheckpoints(int stageId) {
+    final count = stageId == 1 ? 5 : 25;
+    const badgeIcons = ['⭐', '🚀', '🎯', '🔥', '👑', '🌈', '🎨', '🦁', '🍎', '🧩', '💎', '🏆'];
+    return List.generate(count, (index) {
+      final num = index + 1;
+      final icon = badgeIcons[index % badgeIcons.length];
+      return CheckpointInfo(
+        number: num,
+        title: 'Checkpoint $num',
+        subtitle: 'Sesi Pembelajaran $num',
+        badgeIcon: icon,
+      );
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    _checkpoints = _generateCheckpoints(widget.stage.id ?? 1);
     _lessonsFuture = _repository.getByStageId(widget.stage.id!);
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..repeat(reverse: true);
+
+    _loadCheckpointLockStatus();
+  }
+
+
+  Future<void> _loadCheckpointLockStatus() async {
+    final childId = SessionManager.instance.currentChild?.id ?? 1;
+    final stageId = widget.stage.id ?? 1;
+
+    int unlocked = 1;
+    for (int i = 2; i <= _checkpoints.length; i++) {
+      final isUnlocked = await _progressRepository.isCheckpointUnlocked(
+        childId: childId,
+        stageId: stageId,
+        checkpointOrderIndex: i,
+      );
+      if (isUnlocked) {
+        unlocked = i;
+      } else {
+        break;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _unlockedCheckpointCount = unlocked;
+      });
+    }
   }
 
   @override
@@ -100,24 +165,10 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  IconData _getLessonIcon(String lessonType) {
-    switch (lessonType) {
-      case 'listen_repeat':
-        return Icons.mic_rounded;
-      case 'find_object':
-        return Icons.search_rounded;
-      case 'matching':
-        return Icons.extension_rounded;
-      case 'missing_letter':
-        return Icons.spellcheck_rounded;
-      case 'listen_carefully':
-        return Icons.hearing_rounded;
-      default:
-        return Icons.menu_book_rounded;
+  List<Color> _getNodeGradient(int index, bool isUnlocked) {
+    if (!isUnlocked) {
+      return [const Color(0xFF9CA3AF), const Color(0xFF6B7280)]; // Grayscale Muted
     }
-  }
-
-  List<Color> _getNodeGradient(int index) {
     final gradients = [
       [const Color(0xFFFF6B4A), const Color(0xFFFF8E72)], // Coral Orange
       [const Color(0xFF3B82F6), const Color(0xFF60A5FA)], // Sky Blue
@@ -129,31 +180,29 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
     return gradients[index % gradients.length];
   }
 
-  void _navigateToLesson(LessonModel lesson) {
-    Widget destination;
-    switch (lesson.lessonType) {
-      case 'find_object':
-        destination = FindObjectPage(lesson: lesson);
-        break;
-      case 'matching':
-        destination = MatchingPage(lesson: lesson);
-        break;
-      case 'missing_letter':
-        destination = MissingLetterPage(lesson: lesson);
-        break;
-      case 'listen_carefully':
-        destination = ListenCarefullyPage(lesson: lesson);
-        break;
-      case 'listen_repeat':
-      default:
-        destination = QuestionPage(lesson: lesson);
-        break;
-    }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => destination,
+  void _showLockedCheckpointDialog(int checkpointNumber) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_rounded, color: Colors.orange, size: 28),
+            SizedBox(width: 8),
+            Text('Checkpoint Terkunci 🔒'),
+          ],
+        ),
+        content: Text(
+          'Selesaikan semua aktivitas pada Checkpoint ${checkpointNumber - 1} terlebih dahulu untuk membuka petualangan ini!',
+          style: const TextStyle(fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Siap, Mengerti! 🚀', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }
@@ -244,15 +293,14 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final screenWidth = constraints.maxWidth;
-                  const itemHeight = 170.0;
-                  final totalHeight = (lessons.length * itemHeight) + 220.0;
+                  const itemHeight = 175.0;
+                  final totalHeight = (_checkpoints.length * itemHeight) + 380.0;
 
-                  // Hitung koordinat titik node untuk jalur berkelok-kelok
+                  // Hitung koordinat titik node untuk jalur berkelok-kelok (Duolingo Zig-Zag)
                   final points = <Offset>[];
                   final nodeAlignments = <double>[];
 
-                  for (int i = 0; i < lessons.length; i++) {
-                    // Pola zig-zag: tengah-kiri, tengah-kanan, tengah
+                  for (int i = 0; i < _checkpoints.length; i++) {
                     final patternIndex = i % 3;
                     double xPercent;
                     if (patternIndex == 0) {
@@ -264,7 +312,7 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                     }
 
                     nodeAlignments.add(xPercent);
-                    final y = (i * itemHeight) + 60.0 + 45.0;
+                    final y = 80.0 + (i * itemHeight) + 42.0;
                     final x = screenWidth * xPercent;
                     points.add(Offset(x, y));
                   }
@@ -276,19 +324,100 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                       height: totalHeight,
                       child: Stack(
                         children: [
-                          // Jalur melengkung
-                          CustomPaint(
-                            size: Size(screenWidth, totalHeight),
-                            painter: _LearningPathPainter(points: points),
+                          // 1. Jalur melengkung Petualangan Checkpoint (Background layer)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                size: Size(screenWidth, totalHeight),
+                                painter: _LearningPathPainter(points: points),
+                              ),
+                            ),
                           ),
 
-                          // Node Pelajaran
-                          ...List.generate(lessons.length, (index) {
-                            final lesson = lessons[index];
+                          // 2. Header Progres Pembelajaran di Bagian Atas Peta
+                          Positioned(
+                            top: 12,
+                            left: 20,
+                            right: 20,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.06),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                                border: Border.all(color: const Color(0xFFDBEAFE), width: 1.5),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEFF6FF),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.explore_rounded, color: Color(0xFF2563EB), size: 22),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              widget.stage.title,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF1E3A8A),
+                                              ),
+                                            ),
+                                            Text(
+                                              '$_unlockedCheckpointCount/${_checkpoints.length} Terbuka',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF2563EB),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(6),
+                                          child: LinearProgressIndicator(
+                                            value: (_unlockedCheckpointCount / _checkpoints.length).clamp(0.0, 1.0),
+                                            backgroundColor: const Color(0xFFE2E8F0),
+                                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                                            minHeight: 7,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // 3. Node-node Checkpoint pada Peta (Duolingo style bersih tanpa kotak besar)
+                          ...List.generate(_checkpoints.length, (index) {
+                            final checkpoint = _checkpoints[index];
                             final xCenter = screenWidth * nodeAlignments[index];
-                            final yTop = (index * itemHeight) + 60.0;
-                            final isFirst = index == 0;
-                            final gradient = _getNodeGradient(index);
+                            final yTop = 80.0 + (index * itemHeight);
+                            final isUnlocked = index < _unlockedCheckpointCount;
+                            final isCompleted = index + 1 < _unlockedCheckpointCount;
+                            final isCurrentActive = index + 1 == _unlockedCheckpointCount;
+                            final isSelected = index == _selectedCheckpointIndex;
+                            final gradient = _getNodeGradient(index, isUnlocked);
 
                             return Positioned(
                               top: yTop,
@@ -297,13 +426,38 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  // Tombol Lingkaran Besar
+                                  // Tombol Lingkaran Besar Checkpoint
                                   GestureDetector(
-                                    onTap: () => _navigateToLesson(lesson),
+                                    onTap: () {
+                                      if (isUnlocked) {
+                                        setState(() {
+                                          _selectedCheckpointIndex = index;
+                                        });
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => CheckpointSessionPage(
+                                              stageId: widget.stage.id ?? 1,
+                                              checkpointNumber: checkpoint.number,
+                                              stageTitle: widget.stage.title,
+                                              checkpointTitle: checkpoint.title,
+                                              onCheckpointCompleted: () {
+                                                _loadCheckpointLockStatus();
+                                              },
+                                            ),
+                                          ),
+                                        ).then((_) {
+                                          _loadCheckpointLockStatus();
+                                        });
+                                      } else {
+                                        _showLockedCheckpointDialog(checkpoint.number);
+                                      }
+                                    },
+
                                     child: AnimatedBuilder(
                                       animation: _pulseController,
                                       builder: (context, child) {
-                                        final scale = isFirst
+                                        final scale = (isCurrentActive || isSelected) && isUnlocked
                                             ? 1.0 + (_pulseController.value * 0.08)
                                             : 1.0;
                                         return Transform.scale(
@@ -315,8 +469,8 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                                         clipBehavior: Clip.none,
                                         alignment: Alignment.center,
                                         children: [
-                                          // Efek glow untuk node aktif pertama
-                                          if (isFirst)
+                                          // Efek glow untuk node aktif yang dipilih
+                                          if ((isCurrentActive || isSelected) && isUnlocked)
                                             Container(
                                               width: 96,
                                               height: 96,
@@ -326,7 +480,7 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                                               ),
                                             ),
 
-                                          // Node Utama
+                                          // Node Utama Checkpoint
                                           Container(
                                             width: 84,
                                             height: 84,
@@ -337,37 +491,53 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                                                 end: Alignment.bottomRight,
                                               ),
                                               shape: BoxShape.circle,
-                                              border: Border.all(color: Colors.white, width: 4),
+                                              border: Border.all(
+                                                color: Colors.white,
+                                                width: 4,
+                                              ),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: gradient.first.withValues(alpha: 0.4),
+                                                  color: gradient.first.withValues(alpha: isUnlocked ? 0.4 : 0.2),
                                                   blurRadius: 16,
                                                   offset: const Offset(0, 8),
                                                 ),
                                               ],
                                             ),
-                                            child: Icon(
-                                              _getLessonIcon(lesson.lessonType),
-                                              size: 38,
-                                              color: Colors.white,
+                                            child: Center(
+                                              child: isUnlocked
+                                                  ? Text(
+                                                      checkpoint.badgeIcon,
+                                                      style: const TextStyle(fontSize: 34),
+                                                    )
+                                                  : const Icon(
+                                                      Icons.lock_rounded,
+                                                      size: 34,
+                                                      color: Colors.white70,
+                                                    ),
                                             ),
                                           ),
 
-                                          // Bintang selesai atau badge
+                                          // Badge status (Centang hijau jika selesai, Bintang jika aktif, Gembok jika locked)
                                           Positioned(
                                             top: -2,
                                             right: -2,
                                             child: Container(
                                               padding: const EdgeInsets.all(5),
                                               decoration: BoxDecoration(
-                                                gradient: const LinearGradient(
-                                                  colors: [Color(0xFFFBBF24), Color(0xFFF59E0B)],
+                                                gradient: LinearGradient(
+                                                  colors: isCompleted
+                                                      ? [const Color(0xFF10B981), const Color(0xFF059669)]
+                                                      : (isUnlocked
+                                                          ? [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]
+                                                          : [const Color(0xFF9CA3AF), const Color(0xFF6B7280)]),
                                                 ),
                                                 shape: BoxShape.circle,
                                                 border: Border.all(color: Colors.white, width: 2),
                                               ),
-                                              child: const Icon(
-                                                Icons.star_rounded,
+                                              child: Icon(
+                                                isCompleted
+                                                    ? Icons.check_rounded
+                                                    : (isUnlocked ? Icons.star_rounded : Icons.lock_outline_rounded),
                                                 color: Colors.white,
                                                 size: 16,
                                               ),
@@ -380,9 +550,33 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
 
                                   const SizedBox(height: 8),
 
-                                  // Judul Aktivitas (Klik untuk navigasi, memenuhi ekspektasi test)
+                                  // Label Checkpoint
                                   GestureDetector(
-                                    onTap: () => _navigateToLesson(lesson),
+                                    onTap: () {
+                                      if (isUnlocked) {
+                                        setState(() {
+                                          _selectedCheckpointIndex = index;
+                                        });
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => CheckpointSessionPage(
+                                              stageId: widget.stage.id ?? 1,
+                                              checkpointNumber: checkpoint.number,
+                                              stageTitle: widget.stage.title,
+                                              checkpointTitle: checkpoint.title,
+                                              onCheckpointCompleted: () {
+                                                _loadCheckpointLockStatus();
+                                              },
+                                            ),
+                                          ),
+                                        ).then((_) {
+                                          _loadCheckpointLockStatus();
+                                        });
+                                      } else {
+                                        _showLockedCheckpointDialog(checkpoint.number);
+                                      }
+                                    },
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
@@ -399,15 +593,20 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                                       child: Column(
                                         children: [
                                           Text(
-                                            lesson.title,
+                                            checkpoint.title,
                                             textAlign: TextAlign.center,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 13,
                                               fontWeight: FontWeight.bold,
-                                              color: Color(0xFF1F2937),
+                                              color: isUnlocked ? const Color(0xFF1F2937) : const Color(0xFF9CA3AF),
                                             ),
                                           ),
-                                          if (isFirst)
+                                          if (isCompleted)
+                                            const Text(
+                                              '⭐⭐⭐',
+                                              style: TextStyle(fontSize: 11),
+                                            )
+                                          else if (isCurrentActive)
                                             const Text(
                                               'Mulai Di Sini! 👆',
                                               style: TextStyle(
@@ -424,6 +623,7 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                               ),
                             );
                           }),
+
 
                           // Card Selebrasi di Bagian Bawah Jalur
                           Positioned(
@@ -457,7 +657,7 @@ class _LessonPageState extends State<LessonPage> with SingleTickerProviderStateM
                                   ),
                                   SizedBox(height: 2),
                                   Text(
-                                    'Lebih banyak petualangan seru menantimu!',
+                                    'Selesaikan setiap checkpoint untuk menaklukkan tahap ini!',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
                                   ),

@@ -7,16 +7,21 @@ import '../../../../data/models/lesson_model.dart';
 import '../../../../data/models/question_model.dart';
 import '../../../../data/repositories/answer_log_repository.dart';
 import '../../../../data/repositories/question_repository.dart';
+import '../../../../services/audio/bgm_manager.dart';
 import '../../../../services/audio/kogo_voice_manager.dart';
 import '../../../../services/audio/voice_message_context.dart';
 import '../../../../services/auth/session_manager.dart';
 
 class FindObjectPage extends StatefulWidget {
   final LessonModel lesson;
+  final List<QuestionModel>? questionsOverride;
+  final VoidCallback? onCompleted;
 
   const FindObjectPage({
     super.key,
     required this.lesson,
+    this.questionsOverride,
+    this.onCompleted,
   });
 
   @override
@@ -41,7 +46,11 @@ class _FindObjectPageState extends State<FindObjectPage> {
   @override
   void initState() {
     super.initState();
-    _questionsFuture = _questionRepository.getByLessonId(widget.lesson.id!).then((questions) {
+    final questionsSource = widget.questionsOverride != null
+        ? Future.value(widget.questionsOverride!)
+        : _questionRepository.getByLessonId(widget.lesson.id!);
+
+    _questionsFuture = questionsSource.then((questions) {
       if (questions.isNotEmpty) {
         _introTimer = Timer(const Duration(milliseconds: 300), () {
           if (mounted && _currentIndex == 0) {
@@ -53,8 +62,48 @@ class _FindObjectPageState extends State<FindObjectPage> {
     });
   }
 
+
   void _prepareOptions(QuestionModel currentQuestion, List<QuestionModel> allQuestions) {
     if (_currentOptions.isNotEmpty) return;
+
+    final rawTarget = currentQuestion.targetText.trim();
+    final bool isSingleLetter = rawTarget.length == 1 && RegExp(r'[a-zA-Z]').hasMatch(rawTarget);
+
+    if (isSingleLetter) {
+      // MODE STAGE 1: Target adalah 1 huruf (misal 'A')
+      // Cari 1 kata yang diawali huruf tersebut yang ada di dataset gambar
+      final letter = rawTarget.toUpperCase();
+      final matchingWords = ImageDatasetCatalog.allWords
+          .where((w) => w.toUpperCase().startsWith(letter) && ImageDatasetCatalog.hasImage(w))
+          .toList();
+
+      final correctWord = matchingWords.isNotEmpty ? matchingWords.first : rawTarget;
+      final optionsSet = <String>{correctWord};
+
+      // Tambahkan 3 pengecoh yang huruf awalnya BERBEDA
+      final otherWords = ImageDatasetCatalog.allWords
+          .where((w) => !w.toUpperCase().startsWith(letter) && ImageDatasetCatalog.hasImage(w))
+          .toList();
+      otherWords.shuffle(Random(currentQuestion.id ?? currentQuestion.orderIndex));
+
+      for (final distractor in otherWords) {
+        if (optionsSet.length >= 4) break;
+        // Pastikan huruf awal antar pengecoh bervariasi jika memungkinkan
+        if (!optionsSet.any((o) => o[0].toUpperCase() == distractor[0].toUpperCase())) {
+          optionsSet.add(distractor);
+        }
+      }
+      // Jika belum cukup 4, masukkan sisa kata
+      for (final distractor in otherWords) {
+        if (optionsSet.length >= 4) break;
+        optionsSet.add(distractor);
+      }
+
+      final list = optionsSet.toList();
+      list.shuffle(Random(currentQuestion.id ?? currentQuestion.orderIndex));
+      _currentOptions = list;
+      return;
+    }
 
     final optionsSet = <String>{currentQuestion.targetText};
 
@@ -65,16 +114,33 @@ class _FindObjectPageState extends State<FindObjectPage> {
       }
     }
 
-    // Pengecoh cadangan jika list pertanyaan sedikit
-    final fallbackDistractors = ['Apel', 'Buku', 'Bola', 'Meja', 'Sepatu', 'Topi', 'Kucing', 'Pohon'];
+    // Pengecoh cadangan jika list pertanyaan sedikit (100% kata yang ada aset gambarnya di dataset)
+    final fallbackDistractors = [
+      'Apel', 'Buku', 'Bola', 'Sepatu', 'Topi', 'Kucing', 'Pohon',
+      'Pisang', 'Jeruk', 'Roti', 'Susu', 'Ayam', 'Kuda', 'Baju', 'Mobil',
+    ];
+
     for (final distractor in fallbackDistractors) {
       if (optionsSet.length >= 4) break;
-      if (distractor.toLowerCase() != currentQuestion.targetText.toLowerCase()) {
+      if (distractor.toLowerCase() != currentQuestion.targetText.toLowerCase() &&
+          ImageDatasetCatalog.hasImage(distractor)) {
         optionsSet.add(distractor);
       }
     }
 
-    final list = optionsSet.take(4).toList();
+    // Pastikan seluruh opsi yang terpilih valid memiliki gambar
+    final validOptions = optionsSet.where((opt) => ImageDatasetCatalog.hasImage(opt) || opt == currentQuestion.targetText).toList();
+    if (validOptions.length < 4) {
+      // Ambil kata acak dari ImageDatasetCatalog jika masih kurang dari 4
+      for (final datasetWord in ImageDatasetCatalog.allWords) {
+        if (validOptions.length >= 4) break;
+        if (!validOptions.any((o) => o.toLowerCase() == datasetWord.toLowerCase())) {
+          validOptions.add(datasetWord);
+        }
+      }
+    }
+
+    final list = validOptions.take(4).toList();
     list.shuffle(Random(currentQuestion.id ?? currentQuestion.orderIndex));
     _currentOptions = list;
   }
@@ -91,12 +157,19 @@ class _FindObjectPageState extends State<FindObjectPage> {
   Future<void> _selectOption(String option, QuestionModel question) async {
     if (_isAnswered) return;
 
-    final isCorrect = option.trim().toLowerCase() == question.targetText.trim().toLowerCase();
+    final rawTarget = question.targetText.trim();
+    final bool isSingleLetter = rawTarget.length == 1 && RegExp(r'[a-zA-Z]').hasMatch(rawTarget);
+
+    final bool isCorrect = isSingleLetter
+        ? option.trim().toUpperCase().startsWith(rawTarget.toUpperCase())
+        : option.trim().toLowerCase() == rawTarget.toLowerCase();
 
     if (isCorrect) {
       _streak++;
+      BgmManager.instance.playSfx('correct/correct_01.mp3');
     } else {
       _streak = 0;
+      BgmManager.instance.playSfx('incorrect/retry_01.mp3');
     }
 
     setState(() {
@@ -176,6 +249,11 @@ class _FindObjectPageState extends State<FindObjectPage> {
       targetWord: '',
     ));
 
+    if (widget.onCompleted != null) {
+      widget.onCompleted!();
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -196,6 +274,7 @@ class _FindObjectPageState extends State<FindObjectPage> {
       },
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -250,9 +329,11 @@ class _FindObjectPageState extends State<FindObjectPage> {
                   ),
                   child: Column(
                     children: [
-                      const Text(
-                        'Temukan Objek:',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      Text(
+                        question.targetText.trim().length == 1
+                            ? 'Benda berawalan huruf:'
+                            : 'Temukan Objek:',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 8),
                       Text(

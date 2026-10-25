@@ -27,11 +27,15 @@ enum AudioCaptureState {
 class QuestionPage extends StatefulWidget {
   final LessonModel lesson;
   final SpeechRecognitionProvider? speechProvider;
+  final List<QuestionModel>? questionsOverride;
+  final VoidCallback? onCompleted;
 
   const QuestionPage({
     super.key,
     required this.lesson,
     this.speechProvider,
+    this.questionsOverride,
+    this.onCompleted,
   });
 
   @override
@@ -75,13 +79,15 @@ class _QuestionPageState extends State<QuestionPage> with WidgetsBindingObserver
   }
 
   Future<List<QuestionModel>> _loadQuestionsAndResumeIndex() async {
-    final questions = await _repository.getByLessonId(widget.lesson.id!);
+    final questions = widget.questionsOverride ?? await _repository.getByLessonId(widget.lesson.id!);
     if (questions.isNotEmpty) {
       final childId = _sessionManager.currentChild?.id ?? 1;
-      final savedIndex = await _progressRepository.getActiveQuestionIndex(
-        childId: childId,
-        lessonId: widget.lesson.id!,
-      );
+      final savedIndex = widget.questionsOverride != null
+          ? 0
+          : await _progressRepository.getActiveQuestionIndex(
+              childId: childId,
+              lessonId: widget.lesson.id!,
+            );
 
       final safeIndex = (savedIndex >= 0 && savedIndex < questions.length) ? savedIndex : 0;
       if (mounted) {
@@ -98,6 +104,7 @@ class _QuestionPageState extends State<QuestionPage> with WidgetsBindingObserver
     }
     return questions;
   }
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -377,6 +384,11 @@ class _QuestionPageState extends State<QuestionPage> with WidgetsBindingObserver
       targetWord: '',
     ));
 
+    if (widget.onCompleted != null) {
+      widget.onCompleted!();
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -396,6 +408,7 @@ class _QuestionPageState extends State<QuestionPage> with WidgetsBindingObserver
         );
       },
     );
+
   }
 
   @override

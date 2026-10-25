@@ -14,10 +14,14 @@ import '../../../../services/auth/session_manager.dart';
 /// Mengadopsi desain prototipe Figma MissingLetterActivity.tsx dengan animasi ramah anak dan suara interaktif.
 class MissingLetterPage extends StatefulWidget {
   final LessonModel lesson;
+  final List<QuestionModel>? questionsOverride;
+  final VoidCallback? onCompleted;
 
   const MissingLetterPage({
     super.key,
     required this.lesson,
+    this.questionsOverride,
+    this.onCompleted,
   });
 
   @override
@@ -54,7 +58,11 @@ class _MissingLetterPageState extends State<MissingLetterPage> with SingleTicker
     // Jalankan animasi hanya jika ada ticker normal
     _bounceController.forward();
 
-    _questionsFuture = _questionRepository.getByLessonId(widget.lesson.id!).then((questions) {
+    final questionsSource = widget.questionsOverride != null
+        ? Future.value(widget.questionsOverride!)
+        : _questionRepository.getByLessonId(widget.lesson.id!);
+
+    _questionsFuture = questionsSource.then((questions) {
       if (questions.isNotEmpty) {
         _promptTimer = Timer(const Duration(milliseconds: 300), () {
           if (mounted && _currentIndex == 0) {
@@ -65,6 +73,7 @@ class _MissingLetterPageState extends State<MissingLetterPage> with SingleTicker
       return questions;
     });
   }
+
 
   @override
   void dispose() {
@@ -230,6 +239,11 @@ class _MissingLetterPageState extends State<MissingLetterPage> with SingleTicker
       targetWord: '',
     ));
 
+    if (widget.onCompleted != null) {
+      widget.onCompleted!();
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -251,6 +265,7 @@ class _MissingLetterPageState extends State<MissingLetterPage> with SingleTicker
       },
     );
   }
+
 
   @override
   Widget build(BuildContext context) {

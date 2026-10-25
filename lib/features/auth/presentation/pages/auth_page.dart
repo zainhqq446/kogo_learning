@@ -4,12 +4,13 @@ import '../../../../data/models/child_model.dart';
 import '../../../../data/models/user_model.dart';
 import '../../../../data/repositories/child_repository.dart';
 import '../../../../data/repositories/user_repository.dart';
+import '../../../../services/auth/auth_remote_service.dart';
 import '../../../../services/auth/hash_service.dart';
 import '../../../../services/auth/session_manager.dart';
 import '../../../home/presentation/pages/home_page.dart';
 
 /// Halaman Autentikasi Kogo Voice Learning.
-/// Mendukung Login Anak (Child Code + PIN) dan Login/Register Peneliti/Guru.
+/// Mendukung Login & Registrasi Anak (Child Code + PIN / Akun Backend) dan Login/Register Peneliti/Guru.
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
 
@@ -28,6 +29,14 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   final _childPinController = TextEditingController(text: '1234');
   List<ChildModel> _availableChildren = [];
   bool _isLoadingChildren = false;
+
+  // Child Registration Controllers & State
+  bool _isChildRegisterMode = false;
+  final _childRegFullNameCtrl = TextEditingController();
+  final _childRegUsernameCtrl = TextEditingController();
+  final _childRegPasswordCtrl = TextEditingController();
+  final _childRegAgeCtrl = TextEditingController(text: '6');
+  final _childRegSchoolCtrl = TextEditingController();
 
   // Researcher Controllers
   final _researcherUserCtrl = TextEditingController(text: 'researcher');
@@ -51,6 +60,11 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     _tabController.dispose();
     _childCodeController.dispose();
     _childPinController.dispose();
+    _childRegFullNameCtrl.dispose();
+    _childRegUsernameCtrl.dispose();
+    _childRegPasswordCtrl.dispose();
+    _childRegAgeCtrl.dispose();
+    _childRegSchoolCtrl.dispose();
     _researcherUserCtrl.dispose();
     _researcherPassCtrl.dispose();
     _regUsernameCtrl.dispose();
@@ -75,12 +89,20 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     }
   }
 
-  Future<void> _handleChildLogin() async {
-    final code = _childCodeController.text.trim();
-    final pin = _childPinController.text.trim();
+  Future<void> _handleChildRegister() async {
+    final fullName = _childRegFullNameCtrl.text.trim();
+    final username = _childRegUsernameCtrl.text.trim();
+    final password = _childRegPasswordCtrl.text.trim();
+    final age = int.tryParse(_childRegAgeCtrl.text.trim()) ?? 6;
+    final school = _childRegSchoolCtrl.text.trim();
 
-    if (code.isEmpty || pin.isEmpty) {
-      setState(() => _errorMessage = 'Mohon masukkan Kode Anak dan PIN.');
+    if (fullName.isEmpty || username.isEmpty || password.isEmpty || school.isEmpty) {
+      setState(() => _errorMessage = 'Semua field registrasi anak wajib diisi.');
+      return;
+    }
+
+    if (password.length < 4) {
+      setState(() => _errorMessage = 'Password / PIN minimal 4 karakter.');
       return;
     }
 
@@ -90,10 +112,83 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     });
 
     try {
-      final child = await _sessionManager.loginChild(childCode: code, pin: pin);
+      final regResult = await AuthRemoteService.instance.registerChild(
+        fullName: fullName,
+        username: username,
+        password: password,
+        ageYears: age,
+        schoolName: school,
+      );
+
+      if (!regResult.success) {
+        setState(() {
+          _errorMessage = regResult.message ?? 'Registrasi gagal.';
+          _isSubmitting = false;
+        });
+        return;
+      }
+
+      // Login otomatis setelah registrasi berhasil
+      final loginChildResult = await _sessionManager.loginChild(
+        childCode: username.toUpperCase(),
+        pin: password,
+        username: username,
+        password: password,
+      );
+
+      if (loginChildResult != null) {
+        try {
+          await _sessionManager.startResearchSession(notes: 'Sesi latihan setelah registrasi anak $username');
+        } catch (sessionErr) {
+          debugPrint('[AuthPage] Warning: Research session init: $sessionErr');
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Akun anak $fullName berhasil didaftarkan! Selamat belajar.'),
+            backgroundColor: KogoTheme.leafGreen,
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomePage()),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Terjadi kesalahan registrasi: $e';
+        _isSubmitting = false;
+      });
+    }
+  }
+
+  Future<void> _handleChildLogin() async {
+    final code = _childCodeController.text.trim();
+    final pin = _childPinController.text.trim();
+
+    if (code.isEmpty || pin.isEmpty) {
+      setState(() => _errorMessage = 'Mohon masukkan Kode / Username Anak dan PIN / Password.');
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Coba remote login terlebih dahulu jika input adalah username & password
+      final child = await _sessionManager.loginChild(
+        childCode: code,
+        pin: pin,
+        username: code,
+        password: pin,
+      );
+
       if (child == null) {
         setState(() {
-          _errorMessage = 'Kode anak atau PIN salah. Pastikan PIN benar (default: 1234).';
+          _errorMessage = 'Kode anak/username atau PIN/password salah. Pastikan PIN benar.';
           _isSubmitting = false;
         });
         return;
@@ -333,7 +428,7 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
 
                   // Konten Tab
                   SizedBox(
-                    height: 380,
+                    height: 480,
                     child: TabBarView(
                       controller: _tabController,
                       children: [
@@ -356,117 +451,229 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
       elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Masuk Akun Anak',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: KogoTheme.darkSlate),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _isChildRegisterMode ? 'Daftar Akun Anak' : 'Masuk Akun Anak',
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: KogoTheme.darkSlate),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _isChildRegisterMode = !_isChildRegisterMode;
+                      _errorMessage = null;
+                    });
+                  },
+                  child: Text(
+                    _isChildRegisterMode ? 'Sudah Ada Akun' : 'Daftar Baru',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: KogoTheme.primaryCoral),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Pilih ID Peserta atau masukkan Kode dan PIN:',
-              style: TextStyle(fontSize: 13, color: KogoTheme.lightSlate),
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 6),
 
-            // Dropdown cepat daftar anak jika tersedia
-            if (_isLoadingChildren) ...[
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: KogoTheme.primaryCoral),
+            if (_isChildRegisterMode) ...[
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _childRegFullNameCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Nama Lengkap Anak',
+                          prefixIcon: const Icon(Icons.badge_rounded, color: KogoTheme.primaryCoral),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _childRegUsernameCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Username (Contoh: budi_kogo)',
+                          prefixIcon: const Icon(Icons.person_rounded, color: KogoTheme.primaryCoral),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: TextField(
+                              controller: _childRegAgeCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'Usia (Thn)',
+                                prefixIcon: const Icon(Icons.cake_rounded, color: KogoTheme.primaryCoral),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: _childRegSchoolCtrl,
+                              decoration: InputDecoration(
+                                labelText: 'Nama Sekolah / TK',
+                                prefixIcon: const Icon(Icons.school_rounded, color: KogoTheme.primaryCoral),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _childRegPasswordCtrl,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: 'Password / PIN (min. 4 digit)',
+                          prefixIcon: const Icon(Icons.lock_rounded, color: KogoTheme.primaryCoral),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-            ] else if (_availableChildren.isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: KogoTheme.creamSurface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: KogoTheme.sunnyYellow.withValues(alpha: 0.5)),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: _availableChildren.any((c) => c.childCode == _childCodeController.text)
-                        ? _childCodeController.text
-                        : _availableChildren.first.childCode,
-                    hint: const Text('Pilih Anak...'),
-                    items: _availableChildren.map((c) {
-                      return DropdownMenuItem<String>(
-                        value: c.childCode,
-                        child: Row(
-                          children: [
-                            const Text('🧒 ', style: TextStyle(fontSize: 16)),
-                            Text('${c.childCode} — ${c.displayName} (${c.age ?? 6} thn)'),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _childCodeController.text = val;
-                          _childPinController.text = '1234'; // Default PIN
-                        });
-                      }
-                    },
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: KogoTheme.primaryCoral,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
+                  onPressed: _isSubmitting ? null : _handleChildRegister,
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.how_to_reg_rounded, size: 22),
+                  label: const Text('Daftar & Mulai Belajar'),
+                ),
+              ),
+            ] else ...[
+              const Text(
+                'Pilih ID Peserta atau masukkan Kode dan PIN:',
+                style: TextStyle(fontSize: 13, color: KogoTheme.lightSlate),
+              ),
+              const SizedBox(height: 12),
+
+              // Dropdown cepat daftar anak jika tersedia
+              if (_isLoadingChildren) ...[
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: KogoTheme.primaryCoral),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ] else if (_availableChildren.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: KogoTheme.creamSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: KogoTheme.sunnyYellow.withValues(alpha: 0.5)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _availableChildren.any((c) => c.childCode == _childCodeController.text)
+                          ? _childCodeController.text
+                          : _availableChildren.first.childCode,
+                      hint: const Text('Pilih Anak...'),
+                      items: _availableChildren.map((c) {
+                        return DropdownMenuItem<String>(
+                          value: c.childCode,
+                          child: Row(
+                            children: [
+                              const Text('🧒 ', style: TextStyle(fontSize: 16)),
+                              Text('${c.childCode} — ${c.displayName} (${c.age ?? 6} thn)'),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _childCodeController.text = val;
+                            _childPinController.text = '1234'; // Default PIN
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              TextField(
+                controller: _childCodeController,
+                decoration: InputDecoration(
+                  labelText: 'Kode / Username Anak (Contoh: P001)',
+                  prefixIcon: const Icon(Icons.badge_rounded, color: KogoTheme.primaryCoral),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 ),
               ),
               const SizedBox(height: 12),
-            ],
 
-            TextField(
-              controller: _childCodeController,
-              decoration: InputDecoration(
-                labelText: 'Kode Anak (Contoh: P001)',
-                prefixIcon: const Icon(Icons.badge_rounded, color: KogoTheme.primaryCoral),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            TextField(
-              controller: _childPinController,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'PIN 4 Digit (Default: 1234)',
-                prefixIcon: const Icon(Icons.pin_rounded, color: KogoTheme.primaryCoral),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-            ),
-            const Spacer(),
-
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: KogoTheme.primaryCoral,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              TextField(
+                controller: _childPinController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'PIN / Password',
+                  prefixIcon: const Icon(Icons.pin_rounded, color: KogoTheme.primaryCoral),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 ),
-                onPressed: _isSubmitting ? null : _handleChildLogin,
-                icon: _isSubmitting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Icon(Icons.play_arrow_rounded, size: 24),
-                label: const Text('Mulai Belajar Sekarang!'),
               ),
-            ),
+              const Spacer(),
+
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: KogoTheme.primaryCoral,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  onPressed: _isSubmitting ? null : _handleChildLogin,
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_arrow_rounded, size: 24),
+                  label: const Text('Mulai Belajar Sekarang!'),
+                ),
+              ),
+            ],
 
           ],
         ),

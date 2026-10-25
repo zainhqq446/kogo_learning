@@ -34,6 +34,30 @@ class ChildRepository {
     return ChildModel.fromMap(result.first);
   }
 
+  /// Menambahkan anak baru atau mengupdate jika childCode sudah ada.
+  Future<ChildModel> upsertChild(ChildModel child) async {
+    final db = await _database.database;
+    final existing = await getChildByCode(child.childCode);
+
+    final data = child.toMap();
+    data.remove('id');
+
+    if (existing != null) {
+      await db.update(
+        'children',
+        data,
+        where: 'child_code = ?',
+        whereArgs: [child.childCode],
+      );
+      final updated = await getChildByCode(child.childCode);
+      return updated ?? child;
+    } else {
+      final id = await db.insert('children', data);
+      return child.copyWith(id: id);
+    }
+  }
+
+
   /// Autentikasi login anak berdasarkan childCode dan PIN.
   Future<ChildModel?> authenticate(String childCode, String pin) async {
     final child = await getChildByCode(childCode);

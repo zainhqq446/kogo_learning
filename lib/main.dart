@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 
 import 'core/telemetry/startup_telemetry.dart';
 import 'core/theme/kogo_theme.dart';
-import 'features/auth/presentation/pages/auth_page.dart';
-import 'features/home/presentation/pages/home_page.dart';
 import 'services/auth/session_manager.dart';
+
+import 'features/splash/presentation/pages/splash_page.dart';
+
 
 void main() async {
   StartupTelemetry.onMainStart();
@@ -40,15 +41,13 @@ class KogoTestApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sessionManager = SessionManager.instance;
-    final bool isLoggedIn = sessionManager.isChildLoggedIn || sessionManager.isResearcherLoggedIn;
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Kogo Voice Learning',
       theme: KogoTheme.lightTheme,
-      home: isLoggedIn ? const HomePage() : const AuthPage(),
+      home: const SplashPage(),
     );
   }
 }
+
 

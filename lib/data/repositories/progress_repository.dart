@@ -237,5 +237,75 @@ class ProgressRepository {
 
     return prevStage.isCompleted;
   }
+
+  /// Menandai suatu checkpoint selesai untuk anak tertentu
+  Future<void> completeCheckpoint({
+    required int childId,
+    required int stageId,
+    required int checkpointNumber,
+  }) async {
+    final db = await _db;
+    final now = DateTime.now().toIso8601String();
+    final checkpointLessonKey = (stageId * 100) + checkpointNumber;
+
+    await db.insert(
+      'activity_progress',
+      {
+        'child_id': childId,
+        'lesson_id': checkpointLessonKey,
+        'active_question_index': 0,
+        'is_completed': 1,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    // Kompatibilitas dengan index lama
+    await db.insert(
+      'activity_progress',
+      {
+        'child_id': childId,
+        'lesson_id': checkpointNumber,
+        'active_question_index': 0,
+        'is_completed': 1,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Memeriksa apakah suatu checkpoint terbuka untuk anak tertentu di dalam stage.
+  /// Checkpoint pertama (orderIndex = 1) selalu terbuka.
+  /// Checkpoint ke-N hanya terbuka jika checkpoint ke-(N-1) sudah selesai.
+  Future<bool> isCheckpointUnlocked({
+    required int childId,
+    required int stageId,
+    required int checkpointOrderIndex,
+  }) async {
+    if (checkpointOrderIndex <= 1) return true;
+
+    final db = await _db;
+    final prevKey = (stageId * 100) + (checkpointOrderIndex - 1);
+    // Cek apakah ada record penyelesaian untuk checkpoint sebelumnya di activity_progress
+    final prevCompleted = await db.query(
+      'activity_progress',
+      where: 'child_id = ? AND (lesson_id = ? OR lesson_id = ?) AND is_completed = 1',
+      whereArgs: [childId, prevKey, checkpointOrderIndex - 1],
+    );
+
+    if (prevCompleted.isNotEmpty) return true;
+
+    // Verifikasi juga dari total jawaban benar di answer_logs untuk stage ini
+    final countAnswers = Sqflite.firstIntValue(await db.rawQuery('''
+      SELECT COUNT(DISTINCT a.question_id)
+      FROM answer_logs a
+      INNER JOIN questions q ON a.question_id = q.id
+      INNER JOIN lessons l ON q.lesson_id = l.id
+      WHERE a.child_id = ? AND l.stage_id = ? AND a.is_correct = 1
+    ''', [childId, stageId])) ?? 0;
+
+    return countAnswers >= ((checkpointOrderIndex - 1) * 2);
+  }
 }
+
 
