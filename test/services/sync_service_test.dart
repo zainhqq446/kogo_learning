@@ -23,10 +23,23 @@ class _Request {
 class _FakeServer {
   final requests = <_Request>[];
   final knownSecrets = <String, String>{};
-  final responses = <int>[];
+
+  /// Respons paksa berikutnya: (status, kode galat).
+  final responses = <(int, String)>[];
   final rejectUuids = <String>{};
+
+  /// Data yang dimiliki server per host (untuk meniru UNKNOWN_LEARNER/SESSION).
+  final learners = <String>{};
+  final sessions = <String>{};
   bool approved = false;
+  bool dropNextRegisterResponse = false;
   int _tokens = 0;
+
+  /// Meniru server yang dipulihkan dari cadangan lama.
+  void forgetData() {
+    learners.clear();
+    sessions.clear();
+  }
 
   static String jwt(String deviceId, int n) {
     String part(Object o) => base64Url.encode(utf8.encode(jsonEncode(o))).replaceAll('=', '');
@@ -36,8 +49,8 @@ class _FakeServer {
   Future<HttpResult> post(Uri url, Map<String, dynamic> body, {String? bearer, Map<String, String>? headers}) async {
     requests.add(_Request(url, jsonDecode(jsonEncode(body)) as Map<String, dynamic>, bearer, headers ?? const {}));
     if (responses.isNotEmpty) {
-      final status = responses.removeAt(0);
-      return HttpResult(status, {'code': status == 403 ? 'DEVICE_REVOKED' : 'X'});
+      final (status, code) = responses.removeAt(0);
+      return HttpResult(status, {'status': 'error', 'statusCode': status, 'code': code});
     }
     if (url.path.endsWith('/v2/devices/register')) {
       final uuid = '${url.host}|${body['deviceUuid']}';
@@ -47,6 +60,10 @@ class _FakeServer {
       }
       final secret = known ?? 'secret-${knownSecrets.length + 1}-abcdefghijklmnopqrstu';
       knownSecrets[uuid] = secret;
+      if (dropNextRegisterResponse) {
+        dropNextRegisterResponse = false;
+        throw const SocketException('connection reset after the server stored the device');
+      }
       return HttpResult(known == null ? 201 : 200, {
         'status': 'success',
         'data': {
@@ -57,11 +74,30 @@ class _FakeServer {
         },
       });
     }
-    final rejected = [
-      for (final type in const ['learners', 'sessions', 'attempts'])
-        for (final item in (body[type] as List))
-          if (rejectUuids.contains((item as Map)['clientUuid'])) {'type': type, 'clientUuid': item['clientUuid'], 'code': 'INVALID'},
-    ];
+    final rejected = <Map<String, String>>[];
+    void reject(String type, String uuid, String code) => rejected.add({'type': type, 'clientUuid': uuid, 'code': code});
+    for (final l in (body['learners'] as List).cast<Map>()) {
+      final uuid = l['clientUuid'] as String;
+      rejectUuids.contains(uuid) ? reject('learners', uuid, 'INVALID') : learners.add(uuid);
+    }
+    for (final ses in (body['sessions'] as List).cast<Map>()) {
+      final uuid = ses['clientUuid'] as String;
+      if (rejectUuids.contains(uuid)) {
+        reject('sessions', uuid, 'INVALID');
+      } else if (!learners.contains(ses['learnerUuid'])) {
+        reject('sessions', uuid, 'UNKNOWN_LEARNER');
+      } else {
+        sessions.add(uuid);
+      }
+    }
+    for (final a in (body['attempts'] as List).cast<Map>()) {
+      final uuid = a['clientUuid'] as String;
+      if (rejectUuids.contains(uuid)) {
+        reject('attempts', uuid, 'INVALID');
+      } else if (!sessions.contains(a['sessionUuid'])) {
+        reject('attempts', uuid, 'UNKNOWN_SESSION');
+      }
+    }
     return HttpResult(200, {
       'status': 'success',
       'data': {'accepted': {}, 'rejected': rejected},
@@ -168,7 +204,7 @@ void main() {
     await playOneGame();
     await sync.syncNow();
     await playOneGame();
-    server.responses.add(401);
+    server.responses.add((401, 'TOKEN_EXPIRED'));
     final report = await sync.syncNow();
     expect(report.ok, isTrue, reason: report.message);
     expect(server.registrations, hasLength(2));
@@ -179,7 +215,7 @@ void main() {
   test('revoked device stops with a clear message and keeps data queued', () async {
     await sync.syncNow();
     await playOneGame();
-    server.responses.add(403);
+    server.responses.add((403, 'DEVICE_REVOKED'));
     final report = await sync.syncNow();
     expect(report.ok, isFalse);
     expect(report.message, contains('dicabut'));
@@ -229,6 +265,76 @@ void main() {
     // Menyimpan alamat yang sama tidak mengirim ulang apa pun.
     await sync.switchServer(null);
     expect(await sync.pendingCount(), 0);
+  });
+
+  test('server that lost synced data (backup restore) gets everything resent once', () async {
+    await playOneGame();
+    await sync.syncNow();
+    server.forgetData();
+    final db = await KogoDatabase.instance.database;
+    final kid = (await learners.all()).single;
+    final node = Curriculum.nodesOf(Materi.duaSuku)[1];
+    final session = await progress.startSession(learnerId: kid.id, node: node);
+    await progress.completeSession(sessionId: session, learnerId: kid.id, node: node, totalItems: 4, firstTryCorrect: 4);
+
+    final report = await sync.syncNow();
+    expect(report.ok, isTrue, reason: report.message);
+    expect(report.rejected, 0);
+    expect(await sync.pendingCount(), 0);
+    expect(await sync.rejectedCount(), 0);
+    expect(server.learners, hasLength(1));
+    expect(server.sessions, hasLength(2), reason: 'old and new sessions are back on the server');
+    expect((await db.query('game_sessions', where: 'is_synced = 1')).length, 2);
+  });
+
+  test('a permanently rejected learner takes its unsent children with it, and an edit resends them', () async {
+    final kid = await learners.create(name: 'Sarah', school: 'TK Pertiwi', age: 6);
+    server.rejectUuids.add(kid.clientUuid);
+    await sync.syncNow();
+    final node = Curriculum.nodesOf(Materi.duaSuku).first;
+    final session = await progress.startSession(learnerId: kid.id, node: node);
+    await progress.completeSession(sessionId: session, learnerId: kid.id, node: node, totalItems: 4, firstTryCorrect: 4);
+
+    final second = await sync.syncNow();
+    expect(second.nothingToSend, isTrue);
+    expect(await sync.pendingCount(), 0, reason: 'nothing is silently stranded at is_synced = 0');
+    expect(await sync.rejectedCount(), 2);
+    expect(await syncedStates(), {'learners:2': 1, 'game_sessions:2': 1});
+
+    server.rejectUuids.clear();
+    await learners.update(kid, name: 'Sarah', school: 'TK Pertiwi', age: 6);
+    final fixed = await sync.syncNow();
+    expect((fixed.learners, fixed.sessions), (1, 1));
+    expect(await syncedStates(), {'learners:1': 1, 'game_sessions:1': 1});
+  });
+
+  test('lost response of the very first registration recovers with a fresh identity', () async {
+    await playOneGame();
+    server.dropNextRegisterResponse = true;
+    final failed = await sync.syncNow();
+    expect(failed.ok, isFalse);
+    final ok = await sync.syncNow();
+    expect(ok.ok, isTrue, reason: ok.message);
+    expect(server.registrations.map((r) => r.body['deviceUuid']).toSet(), hasLength(2));
+  });
+
+  test('manual refresh hitting the rate limit keeps syncing with the valid token', () async {
+    await sync.syncNow();
+    await playOneGame();
+    server.responses.add((429, 'TOO_MANY_REQUESTS'));
+    final report = await sync.syncNow(refreshDevice: true);
+    expect(report.ok, isTrue, reason: report.message);
+    expect(report.learners, 1);
+  });
+
+  test('pending device over its quota keeps data queued with a clear message', () async {
+    await sync.syncNow();
+    await playOneGame();
+    server.responses.add((403, 'DEVICE_PENDING_QUOTA'));
+    final report = await sync.syncNow();
+    expect(report.ok, isFalse);
+    expect(report.message, contains('belum disetujui'));
+    expect(await sync.pendingCount(), 4);
   });
 
   test('network failure releases claimed rows for the next attempt', () async {

@@ -91,12 +91,17 @@ class LearnerRepository {
     final error = BiodataValidation.name(name) ?? BiodataValidation.school(school) ?? BiodataValidation.age(age);
     if (error != null) throw ArgumentError(error);
     final db = await _database.database;
-    await db.update(
-      'learners',
-      {'name': _clean(name), 'school': _clean(school), 'age': age, 'updated_at': DateTime.now().toUtc().toIso8601String(), 'is_synced': 0},
-      where: 'id = ?',
-      whereArgs: [learner.id],
-    );
+    await db.transaction((txn) async {
+      await txn.update(
+        'learners',
+        {'name': _clean(name), 'school': _clean(school), 'age': age, 'updated_at': DateTime.now().toUtc().toIso8601String(), 'is_synced': 0},
+        where: 'id = ?',
+        whereArgs: [learner.id],
+      );
+      // Biodata diperbaiki: sesi/jawaban yang ikut tertolak karena biodata ini dikirim lagi.
+      await txn.update('game_sessions', {'is_synced': 0}, where: 'learner_id = ? AND is_synced = 2', whereArgs: [learner.id]);
+      await txn.update('answer_attempts', {'is_synced': 0}, where: 'learner_id = ? AND is_synced = 2', whereArgs: [learner.id]);
+    });
     return Learner(id: learner.id, clientUuid: learner.clientUuid, name: _clean(name), school: _clean(school), age: age, avatar: learner.avatar);
   }
 

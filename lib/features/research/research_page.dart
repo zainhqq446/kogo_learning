@@ -37,6 +37,7 @@ class _ResearchPageState extends State<ResearchPage> {
   ResearchMetrics? _learnerMetrics;
   ResearchMetrics? _allMetrics;
   int _pending = 0;
+  int _rejected = 0;
   DateTime? _lastSync;
   DeviceStatus? _device;
   bool _syncing = false;
@@ -64,6 +65,7 @@ class _ResearchPageState extends State<ResearchPage> {
     final learnerMetrics = learner == null ? null : await progress.metrics(learnerId: learner.id);
     final all = await progress.metrics();
     final pending = await SyncService.instance.pendingCount();
+    final rejected = await SyncService.instance.rejectedCount();
     final last = await SyncService.instance.lastSyncAt();
     final url = await SyncService.instance.apiBaseUrl();
     final device = await SyncService.instance.deviceStatus();
@@ -72,6 +74,7 @@ class _ResearchPageState extends State<ResearchPage> {
       _learnerMetrics = learnerMetrics;
       _allMetrics = all;
       _pending = pending;
+      _rejected = rejected;
       _lastSync = last;
       _device = device;
       _urlController.text = url;
@@ -98,12 +101,13 @@ class _ResearchPageState extends State<ResearchPage> {
       _syncMessage = null;
     });
     final report = await SyncService.instance.syncNow(refreshDevice: true);
+    final pending = await SyncService.instance.pendingCount();
     if (!mounted) return;
     setState(() {
       _syncing = false;
       _syncMessage = report.ok
           ? (report.nothingToSend
-                ? 'Semua data sudah terkirim.'
+                ? (pending == 0 ? 'Semua data sudah terkirim.' : '$pending data belum dapat dikirim. Coba lagi nanti.')
                 : 'Terkirim: ${report.learners} anak, ${report.sessions} sesi, ${report.attempts} jawaban'
                       '${report.rejected > 0 ? ' (${report.rejected} ditolak)' : ''}.')
           : report.message;
@@ -185,7 +189,7 @@ class _ResearchPageState extends State<ResearchPage> {
                   ),
                   const SizedBox(height: 10),
                   Text('Perangkat: ${_deviceLabel(_device)}'),
-                  Text('Belum terkirim: $_pending data'),
+                  Text('Belum terkirim: $_pending data${_rejected > 0 ? ' · ditolak server: $_rejected' : ''}'),
                   Text('Terakhir sinkron: ${_lastSync == null ? '-' : _formatTime(_lastSync!)}'),
                   if (_syncMessage != null) ...[
                     const SizedBox(height: 6),

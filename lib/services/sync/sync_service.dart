@@ -95,6 +95,17 @@ class SyncService {
     return (rows.first['c'] as int?) ?? 0;
   }
 
+  /// Data yang ditolak server secara permanen (tidak dikirim ulang).
+  Future<int> rejectedCount() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT (SELECT COUNT(*) FROM learners WHERE is_synced = 2) + '
+      '(SELECT COUNT(*) FROM game_sessions WHERE is_synced = 2) + '
+      '(SELECT COUNT(*) FROM answer_attempts WHERE is_synced = 2) AS c',
+    );
+    return (rows.first['c'] as int?) ?? 0;
+  }
+
   /// Sinkronisasi diam-diam setelah permainan selesai (gagal = dicoba lagi nanti).
   void syncInBackground() {
     _debounce?.cancel();
@@ -135,6 +146,7 @@ class SyncService {
       final base = await apiBaseUrl();
       var token = await _deviceToken(base, refresh: refreshDevice);
       var reauthenticated = refreshDevice;
+      var resent = false;
       var learners = 0, sessions = 0, attempts = 0, rejected = 0;
       for (var round = 0; round < 50; round++) {
         final batch = await _claimBatch();
@@ -158,12 +170,15 @@ class SyncService {
           await _release(batch);
           return SyncReport(ok: false, message: _errorMessage(res));
         }
-        final rejectedItems = ((res.body['data'] as Map?)?['rejected'] as List?) ?? const [];
-        await _commit(batch, rejectedItems.whereType<Map>().map((r) => '${r['clientUuid']}').toSet());
+        final rejectedItems = [...((res.body['data'] as Map?)?['rejected'] as List? ?? const []).whereType<Map>()];
+        final (:resendAll, :permanent) = await _commit(batch, rejectedItems, allowResend: !resent);
         learners += batch.learnerIds.length;
         sessions += batch.sessionIds.length;
         attempts += batch.attemptIds.length;
-        rejected += rejectedItems.length;
+        rejected += permanent;
+        // Server kehilangan data yang dianggap sudah terkirim (mis. dipulihkan
+        // dari cadangan): semua dikirim ulang sekali; server idempoten.
+        if (resendAll) resent = true;
       }
       await _settings.set(AppSettings.lastSyncKey, DateTime.now().toUtc().toIso8601String());
       return SyncReport(ok: true, learners: learners, sessions: sessions, attempts: attempts, rejected: rejected);
@@ -184,11 +199,12 @@ class SyncService {
   /// Token perangkat untuk [base]; mendaftar (ulang) bila belum ada, hampir
   /// kedaluwarsa, atau [refresh]. Pendaftaran ulang membuktikan kepemilikan
   /// dengan `deviceSecret` dari pendaftaran pertama dan token yang masih berlaku.
-  Future<String> _deviceToken(String base, {bool refresh = false}) async {
+  Future<String> _deviceToken(String base, {bool refresh = false, bool retried = false}) async {
     String key(String name) => AppSettings.deviceKey(name, base);
     final token = await _settings.get(key('token'));
     final expiry = DateTime.tryParse(await _settings.get(key('expiry')) ?? '');
-    if (!refresh && token != null && expiry != null && expiry.isAfter(DateTime.now().add(const Duration(days: 1)))) return token;
+    final cached = token != null && expiry != null && expiry.isAfter(DateTime.now().add(const Duration(days: 1))) ? token : null;
+    if (!refresh && cached != null) return cached;
 
     var deviceUuid = await _settings.get(AppSettings.deviceUuidKey);
     if (deviceUuid == null) {
@@ -211,8 +227,17 @@ class SyncService {
     );
     final data = res.body['data'] as Map?;
     final newToken = data?['deviceToken'] as String?;
+    if (res.status == 409 && res.body['code'] == 'DEVICE_PROOF_REQUIRED' && !retried && !await _hasAnyDeviceCredential()) {
+      // Pendaftaran pertama sampai ke server tetapi responsnya hilang: belum ada
+      // data yang terkirim dengan UUID ini, jadi aman memakai identitas baru.
+      await _settings.set(AppSettings.deviceUuidKey, const Uuid().v4());
+      return _deviceToken(base, refresh: refresh, retried: true);
+    }
     if (res.status == 403 || res.status == 409) throw _DeviceRejected(_errorMessage(res));
     if ((res.status != 200 && res.status != 201) || newToken == null) {
+      // Pembaruan gagal (batas permintaan/server sibuk): token lama masih berlaku.
+      if (cached != null) return cached;
+      if (res.status == 429 || res.status >= 500) throw _DeviceRejected(_errorMessage(res));
       throw HttpException('register device failed (${res.status})');
     }
     final newSecret = data?['deviceSecret'] as String?;
@@ -230,6 +255,7 @@ class SyncService {
       'DEVICE_REVOKED' => 'Perangkat ini dicabut oleh peneliti di server. Data tidak dikirim.',
       'DEVICE_PROOF_REQUIRED' => 'Perangkat sudah terdaftar dengan kunci lain. Minta peneliti mereset kredensial perangkat ini di server.',
       'ENROLLMENT_REQUIRED' => 'Server meminta kunci pendaftaran perangkat (KOGO_ENROLLMENT_KEY).',
+      'DEVICE_PENDING_QUOTA' => 'Perangkat belum disetujui peneliti dan batas data sementara tercapai. Data tetap aman di tablet.',
       _ when res.status == 401 => 'Perangkat belum terverifikasi server. Coba sinkronkan lagi.',
       _ when res.status == 429 => 'Terlalu banyak permintaan ke server. Coba lagi beberapa menit lagi.',
       _ when res.status >= 500 => 'Server sedang bermasalah (${res.status}). Coba lagi nanti.',
@@ -255,9 +281,23 @@ class SyncService {
   /// tertutup di tengah sinkronisasi) menjadi "belum terkirim".
   Future<void> _recoverInFlight() async {
     final db = await _database.database;
-    for (final table in const ['learners', 'game_sessions', 'answer_attempts']) {
-      await db.update(table, {'is_synced': 0}, where: 'is_synced = -1');
-    }
+    await db.transaction((txn) async {
+      for (final table in const ['learners', 'game_sessions', 'answer_attempts']) {
+        await txn.update(table, {'is_synced': 0}, where: 'is_synced = -1');
+      }
+      await _cascadeRejected(txn);
+    });
+  }
+
+  /// Sesi/jawaban yang induknya ditolak permanen tidak akan pernah diterima
+  /// server; tandai juga agar tidak terhitung "belum terkirim" selamanya.
+  /// Mengubah biodata anak mengantrekannya kembali (LearnerRepository.update).
+  static Future<void> _cascadeRejected(Transaction txn) async {
+    await txn.rawUpdate('UPDATE game_sessions SET is_synced = 2 WHERE is_synced = 0 AND learner_id IN (SELECT id FROM learners WHERE is_synced = 2)');
+    await txn.rawUpdate(
+      'UPDATE answer_attempts SET is_synced = 2 WHERE is_synced = 0 AND (learner_id IN (SELECT id FROM learners WHERE is_synced = 2) '
+      'OR session_id IN (SELECT id FROM game_sessions WHERE is_synced = 2))',
+    );
   }
 
   Future<_Batch> _claimBatch() async {
@@ -289,6 +329,10 @@ class SyncService {
           for (final r in learners) r['client_uuid'] as String: ('learners', r['id'] as int),
           for (final r in sessions) r['client_uuid'] as String: ('game_sessions', r['id'] as int),
           for (final r in attempts) r['client_uuid'] as String: ('answer_attempts', r['id'] as int),
+        },
+        parents: {
+          for (final r in sessions) r['client_uuid'] as String: [r['learner_uuid'] as String],
+          for (final r in attempts) r['client_uuid'] as String: [r['session_uuid'] as String, r['learner_uuid'] as String],
         },
         payload: {
           'learners': [
@@ -347,15 +391,44 @@ class SyncService {
     await db.transaction((txn) => _mark(txn, batch, from: -1, to: 0));
   }
 
-  Future<void> _commit(_Batch batch, Set<String> rejectedUuids) async {
+  /// Menandai batch terkirim. Item yang ditolak permanen (INVALID,
+  /// FOREIGN_DEVICE) diberi status 2 beserta turunannya yang belum terkirim,
+  /// karena turunan itu tidak akan pernah diterima. Penolakan UNKNOWN_* berarti
+  /// server tidak lagi memiliki induk yang sudah terkirim; bila [allowResend],
+  /// semua data diantrekan ulang (`resendAll`).
+  Future<({bool resendAll, int permanent})> _commit(_Batch batch, List<Map> rejected, {required bool allowResend}) async {
     final db = await _database.database;
-    await db.transaction((txn) async {
+    final rejectedUuids = {for (final r in rejected) '${r['clientUuid']}'};
+    return db.transaction((txn) async {
       await _mark(txn, batch, from: -1, to: 1);
-      for (final uuid in rejectedUuids) {
+      var resendAll = false;
+      var permanent = 0;
+      for (final r in rejected) {
+        final uuid = '${r['clientUuid']}';
         final row = batch.uuidToRow[uuid];
-        if (row != null) await txn.update(row.$1, {'is_synced': 2}, where: 'id = ?', whereArgs: [row.$2]);
+        if (row == null) continue;
+        final missingParent = r['code'] == 'UNKNOWN_LEARNER' || r['code'] == 'UNKNOWN_SESSION';
+        final parentRejected = (batch.parents[uuid] ?? const []).any(rejectedUuids.contains);
+        if (missingParent && allowResend && !parentRejected) {
+          resendAll = true;
+          continue;
+        }
+        await txn.update(row.$1, {'is_synced': 2}, where: 'id = ?', whereArgs: [row.$2]);
+        permanent++;
       }
+      if (resendAll) {
+        for (final table in const ['learners', 'game_sessions', 'answer_attempts']) {
+          await txn.update(table, {'is_synced': 0}, where: 'is_synced = 1');
+        }
+      }
+      await _cascadeRejected(txn);
+      return (resendAll: resendAll, permanent: permanent);
     });
+  }
+
+  Future<bool> _hasAnyDeviceCredential() async {
+    final db = await _database.database;
+    return (await db.query('app_state', columns: ['key'], where: "key LIKE 'device_%@%'", limit: 1)).isNotEmpty;
   }
 
   /// Hanya baris yang statusnya masih [from] yang diubah: bila sebuah sesi
@@ -401,12 +474,22 @@ class SyncService {
 }
 
 class _Batch {
-  const _Batch({required this.learnerIds, required this.sessionIds, required this.attemptIds, required this.uuidToRow, required this.payload});
+  const _Batch({
+    required this.learnerIds,
+    required this.sessionIds,
+    required this.attemptIds,
+    required this.uuidToRow,
+    required this.parents,
+    required this.payload,
+  });
 
   final List<int> learnerIds;
   final List<int> sessionIds;
   final List<int> attemptIds;
   final Map<String, (String, int)> uuidToRow;
+
+  /// clientUuid anak → clientUuid induknya (sesi → anak; jawaban → sesi, anak).
+  final Map<String, List<String>> parents;
   final Map<String, dynamic> payload;
 
   bool get isEmpty => learnerIds.isEmpty && sessionIds.isEmpty && attemptIds.isEmpty;
