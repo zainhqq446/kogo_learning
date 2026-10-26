@@ -1,124 +1,60 @@
 import 'package:flutter/material.dart';
 
-/// Tema Kogo Voice Learning yang disesuaikan untuk anak usia dini dan referensi Figma.
-/// Menggunakan warna cerah hangat (cream background, coral primary, leaf green, sky blue),
-/// sudut melengkung besar (rounded corners 20-28px), dan tipografi yang sangat mudah dibaca.
+import 'kogo_colors.dart';
+
+/// Tema Kogo Belajar mengikuti desain Figma "Learning App": latar gradien
+/// lembut, kartu putih membulat (rounded-3xl), teks tebal, dan aksen ungu-pink.
 class KogoTheme {
-  // Palet Warna Utama
-  static const Color creamBackground = Color(0xFFFFF9EB);
-  static const Color creamSurface = Color(0xFFFFF4DB);
-  static const Color pureWhite = Color(0xFFFFFFFF);
+  KogoTheme._();
 
-  static const Color primaryCoral = Color(0xFFFF6B4A);
-  static const Color primaryDarkCoral = Color(0xFFE25232);
-  static const Color softPeach = Color(0xFFFFECE6);
-
-  static const Color sunnyYellow = Color(0xFFFFB703);
-  static const Color softYellow = Color(0xFFFFF1C2);
-
-  static const Color leafGreen = Color(0xFF48BB78);
-  static const Color softGreen = Color(0xFFE6F7ED);
-
-  static const Color skyBlue = Color(0xFF4A90E2);
-  static const Color softBlue = Color(0xFFEBF3FC);
-
-  static const Color playfulPurple = Color(0xFF9B51E0);
-  static const Color softPurple = Color(0xFFF3E8FC);
-
-  static const Color darkSlate = Color(0xFF2D3748);
-  static const Color mediumSlate = Color(0xFF4A5568);
-  static const Color lightSlate = Color(0xFF718096);
-
-  static ThemeData get lightTheme {
-    return ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: creamBackground,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primaryCoral,
-        primary: primaryCoral,
-        onPrimary: pureWhite,
-        primaryContainer: softPeach,
-        onPrimaryContainer: primaryDarkCoral,
-        secondary: skyBlue,
-        onSecondary: pureWhite,
-        secondaryContainer: softBlue,
-        onSecondaryContainer: skyBlue,
-        tertiary: leafGreen,
-        tertiaryContainer: softGreen,
-        surface: pureWhite,
-        onSurface: darkSlate,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: creamBackground,
-        foregroundColor: darkSlate,
-        elevation: 0,
-        centerTitle: true,
-        titleTextStyle: TextStyle(
-          color: darkSlate,
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.2,
-        ),
-        iconTheme: IconThemeData(
-          color: darkSlate,
-          size: 26,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        color: pureWhite,
-        elevation: 2,
-        shadowColor: const Color(0x1A000000),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryCoral,
-          foregroundColor: pureWhite,
-          elevation: 3,
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.3,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primaryCoral,
-          side: const BorderSide(color: primaryCoral, width: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+  static ThemeData get light {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: KogoColors.purple500,
+      primary: KogoColors.purple600,
+      secondary: KogoColors.pink500,
+      tertiary: KogoColors.teal500,
+      surface: KogoColors.white,
+      onSurface: KogoColors.gray800,
+      error: KogoColors.red500,
+    );
+    final base = ThemeData(useMaterial3: true, colorScheme: scheme);
+    return base.copyWith(
+      scaffoldBackgroundColor: KogoColors.orange50,
+      textTheme: base.textTheme.apply(bodyColor: KogoColors.gray800, displayColor: KogoColors.gray800),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: KogoColors.gray800,
+        contentTextStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: KogoColors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: pureWhite,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-        ),
-        titleTextStyle: const TextStyle(
-          color: darkSlate,
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-        ),
-        contentTextStyle: const TextStyle(
-          color: mediumSlate,
-          fontSize: 17,
-          height: 1.4,
-        ),
+        backgroundColor: KogoColors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        titleTextStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: KogoColors.gray800),
+        contentTextStyle: const TextStyle(fontSize: 16, height: 1.4, color: KogoColors.gray600),
       ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: KogoColors.gray100,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: KogoColors.purple400, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: KogoColors.red400, width: 2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: KogoColors.red500, width: 2),
+        ),
+        labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: KogoColors.gray600),
+        errorStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {TargetPlatform.android: FadeForwardsPageTransitionsBuilder()}),
     );
   }
 }

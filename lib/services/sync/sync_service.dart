@@ -1,435 +1,315 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
+
 import '../../core/constants/backend_config.dart';
-import '../../data/database/app_database.dart';
+import '../../data/app_settings.dart';
+import '../../data/db/kogo_database.dart';
 
-class SyncResult {
-  final bool success;
-  final int syncedSessions;
-  final int syncedAttempts;
-  final int failedItems;
+/// Respons HTTP sederhana.
+class HttpResult {
+  const HttpResult(this.status, this.body);
+  final int status;
+  final Map<String, dynamic> body;
+}
+
+typedef JsonPost = Future<HttpResult> Function(Uri url, Map<String, dynamic> body, {String? bearer});
+
+class SyncReport {
+  const SyncReport({required this.ok, this.learners = 0, this.sessions = 0, this.attempts = 0, this.rejected = 0, this.message});
+
+  final bool ok;
+  final int learners;
+  final int sessions;
+  final int attempts;
+  final int rejected;
   final String? message;
-  final List<String> errors;
 
-  const SyncResult({
-    required this.success,
-    this.syncedSessions = 0,
-    this.syncedAttempts = 0,
-    this.failedItems = 0,
-    this.message,
-    this.errors = const [],
-  });
-
-  bool get isPartialSuccess => (syncedSessions + syncedAttempts > 0) && failedItems > 0;
-  bool get isAllFailed => (syncedSessions + syncedAttempts == 0) && failedItems > 0;
+  bool get nothingToSend => ok && learners == 0 && sessions == 0 && attempts == 0;
 }
 
-enum SyncStatus {
-  idle,
-  syncing,
-  success,
-  offline,
-}
-
+/// Mengirim data penelitian (biodata, sesi permainan, jawaban) ke backend
+/// secara bertahap. Aplikasi tetap berjalan penuh tanpa internet; data yang
+/// belum terkirim ditandai `is_synced = 0` dan dikirim ulang nanti.
+///
+/// Status sinkron: 0 = belum, -1 = sedang dikirim, 1 = terkirim,
+/// 2 = ditolak server (tidak dikirim ulang).
 class SyncService {
-  static final SyncService instance = SyncService();
+  SyncService({KogoDatabase? database, AppSettings? settings, JsonPost? post})
+    : _database = database ?? KogoDatabase.instance,
+      _settings = settings ?? AppSettings(),
+      _post = post ?? _defaultPost;
 
-  final AppDatabase _database;
-  final HttpClient _httpClient;
-  bool _isAutoSyncRunning = false;
-  Timer? _periodicSyncTimer;
-  String _cachedAuthToken = '';
+  static SyncService instance = SyncService();
 
-  SyncStatus _currentStatus = SyncStatus.idle;
-  final StreamController<SyncStatus> _statusController = StreamController<SyncStatus>.broadcast();
+  final KogoDatabase _database;
+  final AppSettings _settings;
+  final JsonPost _post;
+  Future<SyncReport>? _running;
+  Timer? _debounce;
 
-  SyncStatus get currentStatus => _currentStatus;
-  Stream<SyncStatus> get statusStream => _statusController.stream;
+  static const _learnerBatch = 50;
+  static const _sessionBatch = 200;
+  static const _attemptBatch = 500;
 
-  void _setStatus(SyncStatus status) {
-    _currentStatus = status;
-    _statusController.add(status);
+  Future<String> apiBaseUrl() async {
+    final stored = await _settings.get(AppSettings.backendUrlKey);
+    return BackendConfig.normalize(stored ?? BackendConfig.defaultApiBaseUrl);
   }
 
-  SyncService({
-    AppDatabase? database,
-    HttpClient? httpClient,
-  })  : _database = database ?? AppDatabase.instance,
-        _httpClient = httpClient ?? HttpClient();
-
-  /// Menyimpan token autentikasi peneliti untuk proses auto-sync latar belakang
-  void setAuthToken(String token) {
-    _cachedAuthToken = token.trim();
+  Future<DateTime?> lastSyncAt() async {
+    final v = await _settings.get(AppSettings.lastSyncKey);
+    return v == null ? null : DateTime.tryParse(v)?.toLocal();
   }
 
-  /// Memulai auto-sync berkala (setiap 30 detik) saat aplikasi online
-  void startPeriodicSync({Duration interval = const Duration(seconds: 30)}) {
-    _periodicSyncTimer?.cancel();
-    _periodicSyncTimer = Timer.periodic(interval, (_) {
-      autoSyncInBackground();
+  Future<int> pendingCount() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT (SELECT COUNT(*) FROM learners WHERE is_synced = 0) + '
+      '(SELECT COUNT(*) FROM game_sessions WHERE is_synced = 0) + '
+      '(SELECT COUNT(*) FROM answer_attempts WHERE is_synced = 0) AS c',
+    );
+    return (rows.first['c'] as int?) ?? 0;
+  }
+
+  /// Sinkronisasi diam-diam setelah permainan selesai (gagal = dicoba lagi nanti).
+  void syncInBackground() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 3), () => unawaited(syncNow()));
+  }
+
+  Future<SyncReport> syncNow() => _running ??= _sync().whenComplete(() => _running = null);
+
+  Future<SyncReport> _sync() async {
+    try {
+      await _recoverInFlight();
+      final base = await apiBaseUrl();
+      final token = await _deviceToken(base);
+      var learners = 0, sessions = 0, attempts = 0, rejected = 0;
+      for (var round = 0; round < 50; round++) {
+        final batch = await _claimBatch();
+        if (batch.isEmpty) break;
+        final HttpResult res;
+        try {
+          res = await _post(Uri.parse('$base/v2/sync'), batch.payload, bearer: token);
+        } catch (e) {
+          await _release(batch);
+          rethrow;
+        }
+        if (res.status == 401) {
+          await _release(batch);
+          await _settings.set(AppSettings.deviceTokenKey, null);
+          return const SyncReport(ok: false, message: 'Token perangkat kedaluwarsa. Coba sinkronkan lagi.');
+        }
+        if (res.status != 200) {
+          await _release(batch);
+          return SyncReport(ok: false, message: 'Server menolak (${res.status}).');
+        }
+        final rejectedItems = ((res.body['data'] as Map?)?['rejected'] as List?) ?? const [];
+        await _commit(batch, rejectedItems.whereType<Map>().map((r) => '${r['clientUuid']}').toSet());
+        learners += batch.learnerIds.length;
+        sessions += batch.sessionIds.length;
+        attempts += batch.attemptIds.length;
+        rejected += rejectedItems.length;
+      }
+      await _settings.set(AppSettings.lastSyncKey, DateTime.now().toUtc().toIso8601String());
+      return SyncReport(ok: true, learners: learners, sessions: sessions, attempts: attempts, rejected: rejected);
+    } on SocketException {
+      return const SyncReport(ok: false, message: 'Tidak ada koneksi ke server.');
+    } on TimeoutException {
+      return const SyncReport(ok: false, message: 'Server tidak merespons.');
+    } on HandshakeException {
+      return const SyncReport(ok: false, message: 'Koneksi aman (HTTPS) gagal.');
+    } catch (e) {
+      debugPrint('[SyncService] gagal: $e');
+      return const SyncReport(ok: false, message: 'Sinkronisasi gagal.');
+    }
+  }
+
+  Future<String> _deviceToken(String base) async {
+    final token = await _settings.get(AppSettings.deviceTokenKey);
+    final expiry = DateTime.tryParse(await _settings.get(AppSettings.deviceTokenExpiryKey) ?? '');
+    if (token != null && expiry != null && expiry.isAfter(DateTime.now().add(const Duration(days: 1)))) return token;
+
+    var deviceUuid = await _settings.get(AppSettings.deviceUuidKey);
+    if (deviceUuid == null) {
+      deviceUuid = const Uuid().v4();
+      await _settings.set(AppSettings.deviceUuidKey, deviceUuid);
+    }
+    final res = await _post(Uri.parse('$base/v2/devices/register'), {'deviceUuid': deviceUuid, 'platform': 'android', 'appVersion': appVersion});
+    final data = res.body['data'] as Map?;
+    final newToken = data?['deviceToken'] as String?;
+    if ((res.status != 200 && res.status != 201) || newToken == null) {
+      throw HttpException('register device failed (${res.status})');
+    }
+    final seconds = (data?['expiresIn'] as num?)?.toInt() ?? 86400;
+    await _settings.set(AppSettings.deviceTokenKey, newToken);
+    await _settings.set(AppSettings.deviceTokenExpiryKey, DateTime.now().add(Duration(seconds: seconds)).toIso8601String());
+    return newToken;
+  }
+
+  static const appVersion = '2.0.0';
+
+  /// Mengembalikan baris yang tertinggal berstatus "sedang dikirim" (aplikasi
+  /// tertutup di tengah sinkronisasi) menjadi "belum terkirim".
+  Future<void> _recoverInFlight() async {
+    final db = await _database.database;
+    for (final table in const ['learners', 'game_sessions', 'answer_attempts']) {
+      await db.update(table, {'is_synced': 0}, where: 'is_synced = -1');
+    }
+  }
+
+  Future<_Batch> _claimBatch() async {
+    final db = await _database.database;
+    return db.transaction((txn) async {
+      // Anak dikirim bersama induknya: sesi hanya bila datanya (learner) sudah
+      // terkirim atau ikut batch ini; jawaban hanya bila sesinya demikian.
+      final learners = await txn.query('learners', where: 'is_synced = 0', orderBy: 'id', limit: _learnerBatch);
+      final learnerIds = [for (final r in learners) r['id'] as int];
+      final sessions = await txn.rawQuery(
+        'SELECT s.*, l.client_uuid AS learner_uuid FROM game_sessions s '
+        'JOIN learners l ON l.id = s.learner_id WHERE s.is_synced = 0 '
+        'AND (l.is_synced = 1 OR l.id IN (${_placeholders(learnerIds)})) ORDER BY s.id LIMIT $_sessionBatch',
+        learnerIds,
+      );
+      final sessionIds = [for (final r in sessions) r['id'] as int];
+      final attempts = await txn.rawQuery(
+        'SELECT a.*, s.client_uuid AS session_uuid, l.client_uuid AS learner_uuid FROM answer_attempts a '
+        'JOIN game_sessions s ON s.id = a.session_id JOIN learners l ON l.id = a.learner_id '
+        'WHERE a.is_synced = 0 AND (s.is_synced = 1 OR s.id IN (${_placeholders(sessionIds)})) '
+        'ORDER BY a.id LIMIT $_attemptBatch',
+        sessionIds,
+      );
+      final batch = _Batch(
+        learnerIds: [for (final r in learners) r['id'] as int],
+        sessionIds: [for (final r in sessions) r['id'] as int],
+        attemptIds: [for (final r in attempts) r['id'] as int],
+        uuidToRow: {
+          for (final r in learners) r['client_uuid'] as String: ('learners', r['id'] as int),
+          for (final r in sessions) r['client_uuid'] as String: ('game_sessions', r['id'] as int),
+          for (final r in attempts) r['client_uuid'] as String: ('answer_attempts', r['id'] as int),
+        },
+        payload: {
+          'learners': [
+            for (final r in learners)
+              {
+                'clientUuid': r['client_uuid'],
+                'name': r['name'],
+                'school': r['school'],
+                'age': r['age'],
+                'createdAt': r['created_at'],
+                'updatedAt': r['updated_at'],
+              },
+          ],
+          'sessions': [
+            for (final r in sessions)
+              {
+                'clientUuid': r['client_uuid'],
+                'learnerUuid': r['learner_uuid'],
+                'materi': r['materi'],
+                'nodeIndex': r['node_index'],
+                'gameType': r['game_type'],
+                'status': r['status'],
+                'totalItems': r['total_items'],
+                'firstTryCorrect': r['first_try_correct'],
+                'stars': r['stars'],
+                'startedAt': r['started_at'],
+                'endedAt': r['ended_at'],
+              },
+          ],
+          'attempts': [
+            for (final r in attempts)
+              {
+                'clientUuid': r['client_uuid'],
+                'sessionUuid': r['session_uuid'],
+                'learnerUuid': r['learner_uuid'],
+                'gameType': r['game_type'],
+                'targetText': r['target_text'],
+                'answerText': _clip(r['answer_text'] as String, 200),
+                'isCorrect': r['is_correct'] == 1,
+                'attemptNumber': r['attempt_number'],
+                'similarity': r['similarity'],
+                'responseMs': r['response_ms'],
+                'sttError': r['stt_error'],
+                'createdAt': r['created_at'],
+              },
+          ],
+        },
+      );
+      await _mark(txn, batch, from: 0, to: -1);
+      return batch;
     });
   }
 
-  /// Menghentikan auto-sync berkala
-  void stopPeriodicSync() {
-    _periodicSyncTimer?.cancel();
-    _periodicSyncTimer = null;
+  Future<void> _release(_Batch batch) async {
+    final db = await _database.database;
+    await db.transaction((txn) => _mark(txn, batch, from: -1, to: 0));
   }
 
-  /// Menjalankan sinkronisasi otomatis di latar belakang secara aman tanpa memblokir UI thread.
-  Future<SyncResult?> autoSyncInBackground({String? baseUrl, String? authToken}) async {
-    if (_isAutoSyncRunning) return null;
-    _isAutoSyncRunning = true;
-    _setStatus(SyncStatus.syncing);
-
-    try {
-      var token = (authToken != null && authToken.isNotEmpty) ? authToken : _cachedAuthToken;
-      final serverUrl = (baseUrl != null && baseUrl.isNotEmpty) ? baseUrl : BackendConfig.serverRootUrl;
-
-      // Cek apakah ada data yang belum tersinkronkan
-      final counts = await getUnsyncedCount();
-      if ((counts['total'] ?? 0) == 0) {
-        _setStatus(SyncStatus.idle);
-        return const SyncResult(success: true, message: 'All items already synced');
+  Future<void> _commit(_Batch batch, Set<String> rejectedUuids) async {
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      await _mark(txn, batch, from: -1, to: 1);
+      for (final uuid in rejectedUuids) {
+        final row = batch.uuidToRow[uuid];
+        if (row != null) await txn.update(row.$1, {'is_synced': 2}, where: 'id = ?', whereArgs: [row.$2]);
       }
+    });
+  }
 
-      // Jika token belum ada di cache, minta token otomatis dari backend
-      if (token.isEmpty) {
+  /// Hanya baris yang statusnya masih [from] yang diubah: bila sebuah sesi
+  /// diperbarui saat sedang dikirim (status kembali 0), ia akan dikirim ulang.
+  static Future<void> _mark(Transaction txn, _Batch batch, {required int from, required int to}) async {
+    for (final entry in {'learners': batch.learnerIds, 'game_sessions': batch.sessionIds, 'answer_attempts': batch.attemptIds}.entries) {
+      if (entry.value.isEmpty) continue;
+      await txn.rawUpdate('UPDATE ${entry.key} SET is_synced = ? WHERE is_synced = ? AND id IN (${List.filled(entry.value.length, '?').join(',')})', [
+        to,
+        from,
+        ...entry.value,
+      ]);
+    }
+  }
+
+  static String _clip(String s, int max) => s.length <= max ? s : s.substring(0, max);
+
+  /// `NULL` bila kosong agar klausa `IN ()` tetap valid di SQLite.
+  static String _placeholders(List<int> ids) => ids.isEmpty ? 'NULL' : List.filled(ids.length, '?').join(',');
+
+  static Future<HttpResult> _defaultPost(Uri url, Map<String, dynamic> body, {String? bearer}) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    try {
+      return await () async {
+        final req = await client.postUrl(url);
+        req.headers.contentType = ContentType.json;
+        if (bearer != null) req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+        req.add(utf8.encode(jsonEncode(body)));
+        final res = await req.close();
+        final text = await res.transform(utf8.decoder).join();
+        Map<String, dynamic> json = const {};
         try {
-          token = await _fetchSystemAuthToken(serverUrl);
-          if (token.isNotEmpty) {
-            _cachedAuthToken = token;
-          }
-        } catch (e) {
-          debugPrint('[SyncService] Gagal mendapatkan system auth token: $e');
-        }
-      }
-
-      final result = await syncPendingData(
-        baseUrl: serverUrl,
-        authToken: token,
-      );
-
-      if (result.success) {
-        _setStatus(SyncStatus.success);
-        Future.delayed(const Duration(seconds: 3), () {
-          if (_currentStatus == SyncStatus.success) {
-            _setStatus(SyncStatus.idle);
-          }
-        });
-        if (kDebugMode && (result.syncedSessions > 0 || result.syncedAttempts > 0)) {
-          debugPrint(
-            '[AutoSync] Berhasil sinkronisasi latar belakang: '
-            '${result.syncedSessions} sesi, ${result.syncedAttempts} percobaan.',
-          );
-        }
-      } else {
-        _setStatus(SyncStatus.offline);
-      }
-      return result;
-    } catch (e) {
-      _setStatus(SyncStatus.offline);
-      if (kDebugMode) {
-        debugPrint('[AutoSync] Background sync skipped/failed: $e');
-      }
-      return null;
+          final decoded = jsonDecode(text);
+          if (decoded is Map<String, dynamic>) json = decoded;
+        } catch (_) {}
+        return HttpResult(res.statusCode, json);
+      }().timeout(const Duration(seconds: 20));
     } finally {
-      _isAutoSyncRunning = false;
+      client.close(force: true);
     }
   }
+}
 
+class _Batch {
+  const _Batch({required this.learnerIds, required this.sessionIds, required this.attemptIds, required this.uuidToRow, required this.payload});
 
-  /// Menghitung jumlah item yang belum disinkronkan ke server.
-  Future<Map<String, int>> getUnsyncedCount() async {
-    final db = await _database.database;
-    final unsyncedSessions = Sqflite.firstIntValue(await db.rawQuery(
-          'SELECT COUNT(*) FROM research_sessions WHERE is_synced = 0',
-        )) ??
-        0;
+  final List<int> learnerIds;
+  final List<int> sessionIds;
+  final List<int> attemptIds;
+  final Map<String, (String, int)> uuidToRow;
+  final Map<String, dynamic> payload;
 
-    final unsyncedAttempts = Sqflite.firstIntValue(await db.rawQuery(
-          'SELECT COUNT(*) FROM answer_logs WHERE is_synced = 0',
-        )) ??
-        0;
-
-    return {
-      'sessions': unsyncedSessions,
-      'attempts': unsyncedAttempts,
-      'total': unsyncedSessions + unsyncedAttempts,
-    };
-  }
-
-  /// Melakukan sinkronisasi data tertunda ke backend Kogo Voice Learning.
-  Future<SyncResult> syncPendingData({
-    required String baseUrl,
-    required String authToken,
-    int batchSize = 100,
-  }) async {
-    final db = await _database.database;
-
-    // 1. Ambil sesi yang belum disinkronkan
-    final sessionRows = await db.rawQuery('''
-      SELECT 
-        s.id,
-        s.client_session_uuid,
-        c.child_code,
-        d.device_id,
-        s.session_number,
-        s.started_at,
-        s.ended_at,
-        s.notes
-      FROM research_sessions s
-      JOIN children c ON s.child_id = c.id
-      JOIN devices d ON s.device_id = d.id
-      WHERE s.is_synced = 0
-      LIMIT ?
-    ''', [batchSize]);
-
-    // 2. Ambil attempt yang belum disinkronkan
-    final attemptRows = await db.rawQuery('''
-      SELECT 
-        a.id,
-        a.client_attempt_uuid,
-        s.client_session_uuid,
-        c.child_code,
-        d.device_id,
-        a.question_id,
-        a.attempt_number,
-        a.target_text,
-        a.recognized_text,
-        a.normalized_target,
-        a.normalized_recognized,
-        a.edit_distance,
-        a.similarity_score,
-        a.similarity_percent,
-        a.is_correct,
-        a.recognition_duration_ms,
-        a.timestamp,
-        sp.provider,
-        sp.locale,
-        sp.confidence
-      FROM answer_logs a
-      JOIN research_sessions s ON a.session_id = s.id
-      JOIN children c ON a.child_id = c.id
-      JOIN devices d ON a.device_id = d.id
-      LEFT JOIN speech_logs sp ON sp.session_id = a.session_id 
-        AND sp.question_id = a.question_id 
-        AND sp.started_at = a.timestamp
-      WHERE a.is_synced = 0
-      LIMIT ?
-    ''', [batchSize]);
-
-    if (sessionRows.isEmpty && attemptRows.isEmpty) {
-      return const SyncResult(
-        success: true,
-        syncedSessions: 0,
-        syncedAttempts: 0,
-        failedItems: 0,
-        message: 'No pending data to sync',
-      );
-    }
-
-    // 3. Format payload sesuai skema POST /api/research/sync/batch
-    final sessionsPayload = sessionRows.map((r) {
-      final startedIso = _ensureIso8601(r['started_at'] as String);
-      final endedIso = r['ended_at'] != null ? _ensureIso8601(r['ended_at'] as String) : null;
-
-      return {
-        'clientSessionUuid': r['client_session_uuid'],
-        'participantCode': r['child_code'],
-        'deviceIdentifier': r['device_id'],
-        'sessionSequenceNumber': r['session_number'],
-        'startedAt': startedIso,
-        'endedAt': endedIso,
-        'notes': r['notes'],
-      };
-    }).toList();
-
-    final attemptsPayload = attemptRows.map((r) {
-      final attemptedIso = _ensureIso8601(r['timestamp'] as String);
-      final isCorrect = (r['is_correct'] as int) == 1;
-      final editDistance = r['edit_distance'] as int;
-
-      String evalStatus = 'INCORRECT';
-      if (editDistance == 0) {
-        evalStatus = 'EXACT_MATCH';
-      } else if (isCorrect) {
-        evalStatus = 'ACCEPTED_SIMILAR';
-      }
-
-      return {
-        'clientAttemptUuid': r['client_attempt_uuid'],
-        'clientSessionUuid': r['client_session_uuid'],
-        'participantCode': r['child_code'],
-        'deviceIdentifier': r['device_id'],
-        'questionId': r['question_id'],
-        'attemptNumber': r['attempt_number'],
-        'targetText': r['target_text'],
-        'recognizedText': r['recognized_text'],
-        'asrProvider': (r['provider'] as String?) ?? 'whisper_onnx',
-        'locale': (r['locale'] as String?) ?? 'id_ID',
-        'asrConfidence': (r['confidence'] as num?)?.toDouble() ?? 1.0,
-        'durationMs': r['recognition_duration_ms'] as int?,
-        'attemptedAt': attemptedIso,
-        'evaluation': {
-          'normalizedTarget': r['normalized_target'],
-          'normalizedRecognized': r['normalized_recognized'],
-          'editDistance': editDistance,
-          'similarityScore': (r['similarity_score'] as num).toDouble(),
-          'similarityPercent': (r['similarity_percent'] as num).toDouble(),
-          'isCorrect': isCorrect,
-          'evaluationStatus': evalStatus,
-          'thresholdUsed': 1.0,
-          'evaluationMethod': 'levenshtein_normalized_v1',
-          'feedbackText': isCorrect ? 'Hebat!' : 'Ayo coba lagi!',
-        },
-      };
-    }).toList();
-
-    final body = {
-      'sessions': sessionsPayload,
-      'attempts': attemptsPayload,
-    };
-
-    // 4. Kirim request HTTP ke backend
-    try {
-      final cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-      final uri = Uri.parse('$cleanBaseUrl/api/research/sync/batch');
-
-      final request = await _httpClient.postUrl(uri);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $authToken');
-      request.write(jsonEncode(body));
-
-      final response = await request.close();
-      final responseBody = await response.transform(utf8.decoder).join();
-
-      if (response.statusCode != HttpStatus.ok) {
-        return SyncResult(
-          success: false,
-          message: 'Server returned HTTP ${response.statusCode}: $responseBody',
-        );
-      }
-
-      final json = jsonDecode(responseBody) as Map<String, dynamic>;
-      final data = json['data'] as Map<String, dynamic>;
-      final sessionsResult = (data['sessions'] as List<dynamic>?) ?? [];
-      final attemptsResult = (data['attempts'] as List<dynamic>?) ?? [];
-
-      // 5. Tandai data yang berhasil sebagai ter-sinkronisasi (is_synced = 1)
-      final successfulSessionUuids = sessionsResult
-          .where((s) => s['status'] == 'created' || s['status'] == 'already_synced')
-          .map((s) => s['clientSessionUuid'] as String)
-          .toList();
-
-      final successfulAttemptUuids = attemptsResult
-          .where((a) => a['status'] == 'created' || a['status'] == 'already_synced')
-          .map((a) => a['clientAttemptUuid'] as String)
-          .toList();
-
-      if (successfulSessionUuids.isNotEmpty) {
-        final placeholders = List.filled(successfulSessionUuids.length, '?').join(',');
-        await db.rawUpdate(
-          'UPDATE research_sessions SET is_synced = 1 WHERE client_session_uuid IN ($placeholders)',
-          successfulSessionUuids,
-        );
-      }
-
-      if (successfulAttemptUuids.isNotEmpty) {
-        final placeholders = List.filled(successfulAttemptUuids.length, '?').join(',');
-        await db.rawUpdate(
-          'UPDATE answer_logs SET is_synced = 1 WHERE client_attempt_uuid IN ($placeholders)',
-          successfulAttemptUuids,
-        );
-      }
-
-      final summary = data['summary'] as Map<String, dynamic>?;
-      final failedCount = summary?['failedItems'] as int? ??
-          (sessionsResult.where((s) => s['status'] == 'failed').length +
-              attemptsResult.where((a) => a['status'] == 'failed').length);
-
-      final errors = <String>[];
-      for (final s in sessionsResult) {
-        if (s['status'] == 'failed' && s['error'] != null) {
-          final errStr = s['error'].toString();
-          if (!errors.contains(errStr)) {
-            errors.add(errStr);
-          }
-        }
-      }
-      for (final a in attemptsResult) {
-        if (a['status'] == 'failed' && a['error'] != null) {
-          final errStr = a['error'].toString();
-          if (!errors.contains(errStr)) {
-            errors.add(errStr);
-          }
-        }
-      }
-
-      final syncedSessions = summary?['syncedSessions'] as int? ?? successfulSessionUuids.length;
-      final syncedAttempts = summary?['syncedAttempts'] as int? ?? successfulAttemptUuids.length;
-
-      final isAllSuccess = failedCount == 0;
-      String message;
-      if (isAllSuccess) {
-        message = 'Sync completed successfully';
-      } else if (syncedSessions == 0 && syncedAttempts == 0) {
-        message = 'All $failedCount items failed to sync';
-      } else {
-        message = 'Partially synced: $syncedSessions sessions, $syncedAttempts attempts synced, $failedCount failed';
-      }
-
-      return SyncResult(
-        success: isAllSuccess,
-        syncedSessions: syncedSessions,
-        syncedAttempts: syncedAttempts,
-        failedItems: failedCount,
-        message: message,
-        errors: errors,
-      );
-    } catch (e) {
-      return SyncResult(
-        success: false,
-        message: 'Network or database error during sync: $e',
-      );
-    }
-  }
-
-  String _ensureIso8601(String raw) {
-    try {
-      final parsed = DateTime.parse(raw);
-      return parsed.toUtc().toIso8601String();
-    } catch (_) {
-      return raw;
-    }
-  }
-
-  /// Meminta token JWT untuk sinkronisasi otomatis menggunakan kredensial default peneliti
-  Future<String> _fetchSystemAuthToken(String serverUrl) async {
-    final cleanBaseUrl = serverUrl.endsWith('/') ? serverUrl.substring(0, serverUrl.length - 1) : serverUrl;
-    final uri = Uri.parse('$cleanBaseUrl/api/auth/login');
-
-    final request = await _httpClient.postUrl(uri);
-    request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-    request.write(jsonEncode({
-      'username': 'researcher',
-      'password': 'kogo2026',
-    }));
-
-    final response = await request.close();
-    if (response.statusCode == HttpStatus.ok) {
-      final responseBody = await response.transform(utf8.decoder).join();
-      final data = jsonDecode(responseBody) as Map<String, dynamic>;
-      final tokens = data['data']?['tokens'] as Map<String, dynamic>?;
-      return (tokens?['accessToken'] as String?) ?? '';
-    }
-    return '';
-  }
-
-  void dispose() {
-    _httpClient.close(force: true);
-  }
+  bool get isEmpty => learnerIds.isEmpty && sessionIds.isEmpty && attemptIds.isEmpty;
 }
