@@ -36,6 +36,27 @@ test('csv: formula injection guard prefixes = + - @ (and tab/CR) with a single q
   assert.equal(escapeCsvCell('a=b'), 'a=b');
 });
 
+test('csv: formula injection guard also neutralises segments after `;` (semicolon-separator locales)', () => {
+  assert.equal(escapeCsvCell('x;=1+1;y'), "x;'=1+1;y");
+  assert.equal(escapeCsvCell('a;+62812'), "a;'+62812");
+  assert.equal(escapeCsvCell('a;-1+1'), "a;'-1+1");
+  assert.equal(escapeCsvCell('a;@SUM(A1)'), "a;'@SUM(A1)");
+  assert.equal(escapeCsvCell('a;\t=1'), "a;'\t=1");
+  assert.equal(escapeCsvCell('a;=1;=2;+3'), "a;'=1;'=2;'+3");
+  // Sel yang diawali pemicu dan memuat segmen berbahaya: keduanya dinetralkan.
+  assert.equal(escapeCsvCell('=a;=b'), "'=a;'=b");
+  // CR memicu quoting RFC 4180 setelah netralisasi.
+  assert.equal(escapeCsvCell('a;\r=1'), '"a;\'\r=1"');
+  // Segmen dengan tanda kutip / koma tetap di-escape setelah netralisasi.
+  assert.equal(escapeCsvCell('a;=HYPERLINK("http://evil"),b'), '"a;\'=HYPERLINK(""http://evil""),b"');
+  // Titik koma biasa dan pemicu di tengah segmen tidak diubah.
+  assert.equal(escapeCsvCell('a;b;c'), 'a;b;c');
+  assert.equal(escapeCsvCell('a; =1'), 'a; =1');
+  assert.equal(escapeCsvCell('a;b=1'), 'a;b=1');
+  assert.equal(escapeCsvCell(';'), ';');
+  assert.equal(toCsvRow(['ok', 'x;=1+1']), "ok,x;'=1+1");
+});
+
 test('csv: document has UTF-8 BOM, header row and CRLF line endings', () => {
   const csv = toCsv<{ name: string; age: number }>(
     [
