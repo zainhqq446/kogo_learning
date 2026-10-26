@@ -47,6 +47,7 @@ class ResearchMetrics {
     required this.avgResponseMs,
     required this.sessionsStarted,
     required this.sessionsCompleted,
+    required this.sessionsWithErrors,
   });
 
   final int sttAttempts;
@@ -56,14 +57,18 @@ class ResearchMetrics {
   final int sessionsStarted;
   final int sessionsCompleted;
 
+  /// Sesi yang mengalami minimal satu galat pengenalan suara.
+  final int sessionsWithErrors;
+
   /// STT Accuracy Rate = benar / total × 100% (target ≥ 70%).
   double? get sttAccuracy => sttAttempts == 0 ? null : sttCorrect / sttAttempts * 100;
 
   /// Task Completion Rate = selesai / total × 100% (target ≥ 75%).
   double? get taskCompletion => sessionsStarted == 0 ? null : sessionsCompleted / sessionsStarted * 100;
 
-  /// System Error Rate = error / total percobaan suara × 100% (target ≤ 10%).
-  double? get errorRate => sttAttempts == 0 ? null : sttErrors / sttAttempts * 100;
+  /// System Error Rate = sesi dengan error / total sesi × 100% (target ≤ 10%),
+  /// sesuai rumus Tabel 3.1 dan perhitungan di backend.
+  double? get errorRate => sessionsStarted == 0 ? null : sessionsWithErrors / sessionsStarted * 100;
 }
 
 class ProgressRepository {
@@ -265,9 +270,11 @@ class ProgressRepository {
       [GameType.listenRepeat.code, ...args],
     )).first;
     final sessions = (await db.rawQuery(
-      "SELECT COUNT(*) AS started, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed "
-      'FROM game_sessions WHERE 1 = 1$filter',
-      args,
+      "SELECT COUNT(*) AS started, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed, "
+      'SUM(CASE WHEN EXISTS (SELECT 1 FROM answer_attempts a WHERE a.session_id = s.id AND a.game_type = ? '
+      'AND a.stt_error IS NOT NULL) THEN 1 ELSE 0 END) AS with_errors '
+      'FROM game_sessions s WHERE 1 = 1$filter',
+      [GameType.listenRepeat.code, ...args],
     )).first;
     return ResearchMetrics(
       sttAttempts: (stt['total'] as int?) ?? 0,
@@ -276,6 +283,7 @@ class ProgressRepository {
       avgResponseMs: (stt['avg_ms'] as num?)?.round(),
       sessionsStarted: (sessions['started'] as int?) ?? 0,
       sessionsCompleted: (sessions['completed'] as int?) ?? 0,
+      sessionsWithErrors: (sessions['with_errors'] as int?) ?? 0,
     );
   }
 

@@ -191,7 +191,9 @@ void main() {
       final m = await progress.metrics(learnerId: kid.id);
       expect(m.sttAttempts, 3, reason: 'only voice attempts count');
       expect(m.sttAccuracy, closeTo(66.67, 0.01));
-      expect(m.errorRate, closeTo(33.33, 0.01));
+      expect(m.sttErrors, 1);
+      expect(m.sessionsWithErrors, 1);
+      expect(m.errorRate, 50, reason: '(sesi dengan error / total sesi) × 100%, Tabel 3.1');
       expect(m.avgResponseMs, 1000);
       expect(m.taskCompletion, 50);
 

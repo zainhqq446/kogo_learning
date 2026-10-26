@@ -102,7 +102,8 @@ void main() {
       final learner = AppSession.instance.learner!;
       final metrics = (await tester.runAsync(() => AppSession.instance.progress.metrics(learnerId: learner.id)))!;
       expect(metrics.sttAttempts, 2);
-      expect(metrics.errorRate, 50);
+      expect(metrics.sessionsWithErrors, 1);
+      expect(metrics.errorRate, 100); // 1 dari 1 sesi mengalami galat suara (Tabel 3.1)
     });
 
     testWidgets('near miss shows "almost" feedback', (tester) async {

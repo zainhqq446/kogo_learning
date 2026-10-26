@@ -163,7 +163,7 @@ class _ResearchPageState extends State<ResearchPage> {
                   const Text(
                     'STT Accuracy = ucapan benar ÷ total percobaan suara (Dengar & Ulangi). '
                     'Response Time = akhir ucapan terakhir yang tertangkap hingga hasil tampil. '
-                    'Error Rate = percobaan tanpa hasil (tidak terdengar/gangguan) ÷ total percobaan suara.',
+                    'Error Rate = sesi yang mengalami galat suara (tidak terdengar/gangguan) ÷ total sesi.',
                     style: TextStyle(fontSize: 12, color: KogoColors.gray500),
                   ),
                 ],
@@ -333,7 +333,8 @@ class _ResearchPageState extends State<ResearchPage> {
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            'Percobaan suara: ${m.sttAttempts} (benar ${m.sttCorrect}, error ${m.sttErrors}) · Sesi: ${m.sessionsCompleted}/${m.sessionsStarted} selesai',
+            'Percobaan suara: ${m.sttAttempts} (benar ${m.sttCorrect}, error ${m.sttErrors}) · '
+            'Sesi: ${m.sessionsCompleted}/${m.sessionsStarted} selesai, ${m.sessionsWithErrors} dengan error',
             style: const TextStyle(fontSize: 12, color: KogoColors.gray500),
           ),
         ),
