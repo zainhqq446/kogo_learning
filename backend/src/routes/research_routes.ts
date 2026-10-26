@@ -1,33 +1,42 @@
 import { Router } from 'express';
 import { ResearchController } from '../controllers/research_controller.js';
-import { requireAuth, requireRole } from '../middlewares/auth.js';
+import { AuthMiddlewares, requireRole } from '../middlewares/auth.js';
+import { RateLimiters } from '../middlewares/rate_limit.js';
 
-export const researchRouter = Router();
-const controller = new ResearchController();
+/**
+ * API riset lama (v1). Tetap dipertahankan untuk kompatibilitas; seluruh route
+ * mewajibkan access token pengguna dan role yang sesuai.
+ */
+export function createResearchRouter(limiters: RateLimiters, auth: AuthMiddlewares): Router {
+  const router = Router();
+  const controller = new ResearchController();
 
-// Seluruh route research mewajibkan autentikasi (requireAuth)
-researchRouter.use(requireAuth);
+  // Seluruh route research mewajibkan autentikasi (requireAuth)
+  router.use(auth.requireAuth);
 
-// 1. Peserta Penelitian (Pseudonim)
-researchRouter.get('/participants', requireRole('admin', 'researcher', 'teacher'), controller.listParticipants);
-researchRouter.post('/participants', requireRole('admin', 'researcher'), controller.createParticipant);
-researchRouter.post('/participants/batch', requireRole('admin', 'researcher'), controller.batchImportParticipants);
-researchRouter.get('/participants/:code', requireRole('admin', 'researcher', 'teacher'), controller.getParticipant);
+  // 1. Peserta Penelitian (Pseudonim)
+  router.get('/participants', requireRole('admin', 'researcher', 'teacher'), controller.listParticipants);
+  router.post('/participants', requireRole('admin', 'researcher'), controller.createParticipant);
+  router.post('/participants/batch', requireRole('admin', 'researcher'), controller.batchImportParticipants);
+  router.get('/participants/:code', requireRole('admin', 'researcher', 'teacher'), controller.getParticipant);
 
-// 2. Perangkat Penelitian (Devices)
-researchRouter.get('/devices', requireRole('admin', 'researcher'), controller.listDevices);
-researchRouter.post('/devices', requireRole('admin', 'researcher', 'teacher'), controller.registerDevice);
+  // 2. Perangkat Penelitian (Devices)
+  router.get('/devices', requireRole('admin', 'researcher'), controller.listDevices);
+  router.post('/devices', requireRole('admin', 'researcher', 'teacher'), controller.registerDevice);
 
-// 3. Sesi Penelitian (Sessions)
-researchRouter.get('/sessions', requireRole('admin', 'researcher', 'teacher'), controller.listSessions);
-researchRouter.post('/sessions', requireRole('admin', 'researcher', 'teacher'), controller.createSession);
+  // 3. Sesi Penelitian (Sessions)
+  router.get('/sessions', requireRole('admin', 'researcher', 'teacher'), controller.listSessions);
+  router.post('/sessions', requireRole('admin', 'researcher', 'teacher'), controller.createSession);
 
-// 4. Percobaan Suara & Evaluasi Kemiripan (Attempts & Evaluations)
-researchRouter.get('/attempts', requireRole('admin', 'researcher'), controller.listAttempts);
-researchRouter.post('/attempts', requireRole('admin', 'researcher', 'teacher'), controller.recordAttempt);
+  // 4. Percobaan Suara & Evaluasi Kemiripan (Attempts & Evaluations)
+  router.get('/attempts', requireRole('admin', 'researcher'), controller.listAttempts);
+  router.post('/attempts', requireRole('admin', 'researcher', 'teacher'), controller.recordAttempt);
 
-// 5. Agregasi & Summary Penelitian
-researchRouter.get('/summary', requireRole('admin', 'researcher'), controller.getSummary);
+  // 5. Agregasi & Summary Penelitian
+  router.get('/summary', requireRole('admin', 'researcher'), controller.getSummary);
 
-// 6. Offline-to-Online Batch Sync
-researchRouter.post('/sync/batch', requireRole('admin', 'researcher', 'teacher'), controller.syncBatch);
+  // 6. Offline-to-Online Batch Sync (lama)
+  router.post('/sync/batch', requireRole('admin', 'researcher', 'teacher'), limiters.sync, controller.syncBatch);
+
+  return router;
+}

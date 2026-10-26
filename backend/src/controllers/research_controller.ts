@@ -9,6 +9,8 @@ import {
   createAttemptSchema,
   batchParticipantSchema,
   syncBatchSchema,
+  paginationQuerySchema,
+  listAttemptsQuerySchema,
 } from '../types/schemas.js';
 
 export class ResearchController {
@@ -139,8 +141,7 @@ export class ResearchController {
 
   listSessions = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const limit = parseInt(req.query.limit as string, 10) || 50;
-      const offset = parseInt(req.query.offset as string, 10) || 0;
+      const { limit, offset } = paginationQuerySchema.parse(req.query);
       const service = this.getService();
       const sessions = await service.listSessions(limit, offset);
 
@@ -174,9 +175,7 @@ export class ResearchController {
 
   listAttempts = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const sessionId = req.query.sessionId as string | undefined;
-      const limit = parseInt(req.query.limit as string, 10) || 50;
-      const offset = parseInt(req.query.offset as string, 10) || 0;
+      const { sessionId, limit, offset } = listAttemptsQuerySchema.parse(req.query);
       const service = this.getService();
       const attempts = await service.listAttempts(sessionId, limit, offset);
 
@@ -246,9 +245,9 @@ export class ResearchController {
         message: 'Batch synchronization completed',
         data: result,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
-      logger.error(`[ResearchSync] Batch sync failed in ${durationMs}ms: ${err.message || err}`);
+      logger.error(`[ResearchSync] Batch sync failed in ${durationMs}ms: ${err instanceof Error ? err.message : String(err)}`);
       next(err);
     }
   };

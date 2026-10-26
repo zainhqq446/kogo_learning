@@ -1,52 +1,35 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { getDbPool, checkDatabaseHealth, closeDbPool } from '../config/database.js';
-import { runMigrations, getAppliedMigrations } from '../services/migrator.js';
+import { getDbPool, closeDbPool } from '../config/database.js';
+import { runStartupTasks } from '../services/startup_service.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../config/env.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-async function main() {
+/**
+ * CLI migrasi: menjalankan migrasi skema, seed data referensi kurikulum
+ * (vocabulary.json), dan bootstrap akun admin. Dipakai juga oleh
+ * docker-entrypoint.sh sebelum server dijalankan.
+ */
+async function main(): Promise<void> {
+  const target = config.database.connectionString
+    ? 'DATABASE_URL'
+    : `${config.database.database} @ ${config.database.host}:${config.database.port}`;
   logger.info('====================================================');
-  logger.info('🚀 Kogo Voice Learning Database Migrations CLI');
-  logger.info(`Target Database : ${config.database.database} @ ${config.database.host}:${config.database.port}`);
+  logger.info('Kogo Voice Learning - Database migrations');
+  logger.info(`Target database : ${target}`);
   logger.info('====================================================');
 
-  // 1. Cek kesehatan koneksi terlebih dahulu
-  const health = await checkDatabaseHealth();
-  if (!health.connected) {
-    logger.error(`Cannot connect to database: ${health.error}`);
-    logger.info('Please verify your .env configuration and database service status.');
-    await closeDbPool();
-    process.exit(1);
-  }
-
-  // 2. Jalankan migrasi
-  const migrationsDir = path.resolve(__dirname, '../../migrations');
-  const pool = getDbPool();
-
-  try {
-    const applied = await runMigrations(pool, migrationsDir);
-    if (applied.length === 0) {
-      logger.info('✨ No new migrations to apply. Database schema is already up to date.');
-    } else {
-      logger.info(`🎉 Successfully applied ${applied.length} migration(s): ${applied.join(', ')}`);
-    }
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error(`Migration process aborted: ${errorMsg}`);
-    await closeDbPool();
-    process.exit(1);
-  }
-
-  await closeDbPool();
-  process.exit(0);
+  const result = await runStartupTasks(getDbPool());
+  logger.info(
+    `Done. Migrations applied now: ${result.appliedMigrations.length}, admin bootstrap: ${result.admin}, words seeded: ${result.referenceData.words}.`
+  );
 }
 
-main().catch(async (err) => {
-  logger.error('Unexpected migration failure:', err);
-  await closeDbPool();
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await closeDbPool();
+    process.exit(0);
+  })
+  .catch(async (err: unknown) => {
+    logger.error(`Migration process aborted: ${err instanceof Error ? err.message : String(err)}`);
+    await closeDbPool().catch(() => undefined);
+    process.exit(1);
+  });

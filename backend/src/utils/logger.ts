@@ -28,7 +28,8 @@ export const logger = {
     console.error(`[${formatTimestamp()}] [ERROR] ${sanitizedMsg}`, ...args.map(sanitize));
   },
   debug(message: string, ...args: unknown[]): void {
-    if (process.env.NODE_ENV === 'production') return;
+    // NODE_ENV kosong diperlakukan sebagai production (sama dengan config).
+    if ((process.env.NODE_ENV || 'production') === 'production') return;
     const sanitizedMsg = sanitize(message);
     console.debug(`[${formatTimestamp()}] [DEBUG] ${sanitizedMsg}`, ...args.map(sanitize));
   },

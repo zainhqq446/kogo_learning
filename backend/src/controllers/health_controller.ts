@@ -2,25 +2,35 @@ import { Request, Response } from 'express';
 import { checkDatabaseHealth } from '../config/database.js';
 import { config } from '../config/env.js';
 
-export async function getHealthStatus(req: Request, res: Response): Promise<void> {
-  const dbHealth = await checkDatabaseHealth();
+const SERVICE_NAME = 'kogo-voice-learning-backend';
 
-  const isHealthy = true; // Service API aktif dan melayani request
-  const responseData = {
+/**
+ * Liveness: proses hidup dan melayani HTTP. Tidak menyentuh database dan tidak
+ * mengungkap environment / detail internal.
+ */
+export function getHealthStatus(_req: Request, res: Response): void {
+  res.status(200).json({
     status: 'ok',
+    service: SERVICE_NAME,
+    version: config.server.appVersion,
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
-    environment: config.server.nodeEnv,
-    service: 'kogo-voice-learning-backend',
-    version: '1.0.0',
-    database: {
-      provider: 'postgresql',
-      connected: dbHealth.connected,
-      latencyMs: dbHealth.latencyMs ?? null,
-      status: dbHealth.connected ? 'ready' : 'disconnected (lazy check - not blocking)',
-      ...(dbHealth.error ? { message: dbHealth.error } : {}),
-    },
-  };
+  });
+}
 
-  res.status(200).json(responseData);
+/**
+ * Readiness: 200 bila PostgreSQL dapat dijangkau, 503 bila tidak.
+ * Pesan error database hanya dicatat di log server.
+ */
+export async function getReadinessStatus(_req: Request, res: Response): Promise<void> {
+  const db = await checkDatabaseHealth();
+  res.status(db.connected ? 200 : 503).json({
+    status: db.connected ? 'ready' : 'not_ready',
+    service: SERVICE_NAME,
+    timestamp: new Date().toISOString(),
+    checks: {
+      database: db.connected ? 'up' : 'down',
+    },
+    ...(db.connected ? { latencyMs: db.latencyMs } : {}),
+  });
 }

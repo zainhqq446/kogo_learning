@@ -2,33 +2,35 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth_service.js';
 import { getDbPool } from '../config/database.js';
 import { registerSchema, childRegisterSchema, loginSchema } from '../types/schemas.js';
+import { ForbiddenError } from '../types/errors.js';
+import { STAFF_ROLES } from '../types/user.js';
 
 export class AuthController {
   private getService(): AuthService {
     return new AuthService(getDbPool());
   }
 
+  /**
+   * Registrasi akun oleh staf yang login (route mewajibkan admin/researcher/
+   * teacher). Akun staf (admin/researcher/teacher) hanya dapat dibuat admin;
+   * researcher/teacher hanya dapat membuat akun anak (`child`/`student`).
+   * Tidak ada registrasi publik, sehingga endpoint ini tidak dapat dipakai
+   * untuk enumerasi username atau kode peserta.
+   */
   register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const data = registerSchema.parse(req.body);
-      const service = this.getService();
-      
-      // Keamanan: Tolak jika client mencoba inject role admin/researcher pada registrasi publik
-      let enforcedRole = data.role;
-      if (enforcedRole === 'admin' || enforcedRole === 'researcher') {
-        // Hanya izinkan jika request memiliki token admin (atau paksa default ke 'child')
-        if (req.user?.role !== 'admin') {
-          enforcedRole = 'child';
-        }
-      } else if (!enforcedRole) {
-        enforcedRole = 'child';
+      const data = registerSchema.parse(req.body ?? {});
+      const role = data.role ?? 'child';
+
+      if (STAFF_ROLES.includes(role) && req.user?.role !== 'admin') {
+        throw new ForbiddenError('Staff accounts can only be created by an administrator.');
       }
 
-      const user = await service.registerUser({
+      const user = await this.getService().registerUser({
         username: data.username,
         password: data.password,
         fullName: data.fullName,
-        role: enforcedRole,
+        role,
         ageYears: data.ageYears,
         schoolName: data.schoolName,
       });
@@ -45,10 +47,9 @@ export class AuthController {
 
   registerChild = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const data = childRegisterSchema.parse(req.body);
-      const service = this.getService();
+      const data = childRegisterSchema.parse(req.body ?? {});
 
-      const user = await service.registerUser({
+      const user = await this.getService().registerUser({
         username: data.username,
         password: data.password,
         fullName: data.fullName,
@@ -69,9 +70,8 @@ export class AuthController {
 
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const data = loginSchema.parse(req.body);
-      const service = this.getService();
-      const result = await service.login(data.username, data.password);
+      const data = loginSchema.parse(req.body ?? {});
+      const result = await this.getService().login(data.username, data.password);
 
       res.status(200).json({
         status: 'success',
@@ -85,9 +85,7 @@ export class AuthController {
 
   me = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const userId = req.user!.userId;
-      const service = this.getService();
-      const user = await service.getUserProfile(userId);
+      const user = await this.getService().getUserProfile(req.user!.userId);
 
       res.status(200).json({
         status: 'success',

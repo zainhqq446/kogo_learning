@@ -1,0 +1,1570 @@
+{
+  "materi": [
+    {
+      "code": "letters",
+      "title": "Latihan Huruf",
+      "order": 1,
+      "nodeCount": 30,
+      "words": [
+        {
+          "order": 1,
+          "text": "a",
+          "syllables": [
+            "a"
+          ],
+          "category": "buah",
+          "example": "apel",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/apel.png"
+        },
+        {
+          "order": 2,
+          "text": "b",
+          "syllables": [
+            "b"
+          ],
+          "category": "benda",
+          "example": "bola",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bola.png"
+        },
+        {
+          "order": 3,
+          "text": "c",
+          "syllables": [
+            "c"
+          ],
+          "category": "makanan",
+          "example": "cokelat",
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/cokelat.png"
+        },
+        {
+          "order": 4,
+          "text": "d",
+          "syllables": [
+            "d"
+          ],
+          "category": "hewan",
+          "example": "dinosaurus",
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/dinosaurus.png"
+        },
+        {
+          "order": 5,
+          "text": "e",
+          "syllables": [
+            "e"
+          ],
+          "category": "benda",
+          "example": "eskalator",
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/eskalator.png"
+        },
+        {
+          "order": 6,
+          "text": "f",
+          "syllables": [
+            "f"
+          ],
+          "category": "hewan",
+          "example": "flamingo",
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/flamingo.png"
+        },
+        {
+          "order": 7,
+          "text": "g",
+          "syllables": [
+            "g"
+          ],
+          "category": "hewan",
+          "example": "gajah",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/gajah.png"
+        },
+        {
+          "order": 8,
+          "text": "h",
+          "syllables": [
+            "h"
+          ],
+          "category": "hewan",
+          "example": "harimau",
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/harimau.png"
+        },
+        {
+          "order": 9,
+          "text": "i",
+          "syllables": [
+            "i"
+          ],
+          "category": "hewan",
+          "example": "ikan",
+          "image": null
+        },
+        {
+          "order": 10,
+          "text": "j",
+          "syllables": [
+            "j"
+          ],
+          "category": "buah",
+          "example": "jeruk",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/jeruk.png"
+        },
+        {
+          "order": 11,
+          "text": "k",
+          "syllables": [
+            "k"
+          ],
+          "category": "hewan",
+          "example": "kucing",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kucing.png"
+        },
+        {
+          "order": 12,
+          "text": "l",
+          "syllables": [
+            "l"
+          ],
+          "category": "hewan",
+          "example": "lebah",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/lebah.png"
+        },
+        {
+          "order": 13,
+          "text": "m",
+          "syllables": [
+            "m"
+          ],
+          "category": "kendaraan",
+          "example": "mobil",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/mobil.png"
+        },
+        {
+          "order": 14,
+          "text": "n",
+          "syllables": [
+            "n"
+          ],
+          "category": "buah",
+          "example": "nanas",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/nanas.png"
+        },
+        {
+          "order": 15,
+          "text": "o",
+          "syllables": [
+            "o"
+          ],
+          "category": "hewan",
+          "example": "orangutan",
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/orangutan.png"
+        },
+        {
+          "order": 16,
+          "text": "p",
+          "syllables": [
+            "p"
+          ],
+          "category": "buah",
+          "example": "pisang",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pisang.png"
+        },
+        {
+          "order": 17,
+          "text": "r",
+          "syllables": [
+            "r"
+          ],
+          "category": "benda",
+          "example": "rumah",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/rumah.png"
+        },
+        {
+          "order": 18,
+          "text": "s",
+          "syllables": [
+            "s"
+          ],
+          "category": "benda",
+          "example": "sepatu",
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/sepatu.png"
+        },
+        {
+          "order": 19,
+          "text": "t",
+          "syllables": [
+            "t"
+          ],
+          "category": "benda",
+          "example": "topi",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/topi.png"
+        },
+        {
+          "order": 20,
+          "text": "u",
+          "syllables": [
+            "u"
+          ],
+          "category": "hewan",
+          "example": "ular",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/ular.png"
+        },
+        {
+          "order": 21,
+          "text": "w",
+          "syllables": [
+            "w"
+          ],
+          "category": "makanan",
+          "example": "wortel",
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/wortel.png"
+        },
+        {
+          "order": 22,
+          "text": "z",
+          "syllables": [
+            "z"
+          ],
+          "category": "hewan",
+          "example": "zebra",
+          "image": null
+        }
+      ]
+    },
+    {
+      "code": "two-syllable",
+      "title": "Kata Dua Suku Kata",
+      "order": 2,
+      "nodeCount": 60,
+      "words": [
+        {
+          "order": 1,
+          "text": "bola",
+          "syllables": [
+            "bo",
+            "la"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bola.png"
+        },
+        {
+          "order": 2,
+          "text": "buku",
+          "syllables": [
+            "bu",
+            "ku"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/buku.png"
+        },
+        {
+          "order": 3,
+          "text": "susu",
+          "syllables": [
+            "su",
+            "su"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/susu.png"
+        },
+        {
+          "order": 4,
+          "text": "kuda",
+          "syllables": [
+            "ku",
+            "da"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kuda.png"
+        },
+        {
+          "order": 5,
+          "text": "topi",
+          "syllables": [
+            "to",
+            "pi"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/topi.png"
+        },
+        {
+          "order": 6,
+          "text": "roti",
+          "syllables": [
+            "ro",
+            "ti"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/roti.png"
+        },
+        {
+          "order": 7,
+          "text": "baju",
+          "syllables": [
+            "ba",
+            "ju"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/baju.png"
+        },
+        {
+          "order": 8,
+          "text": "keju",
+          "syllables": [
+            "ke",
+            "ju"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/keju.png"
+        },
+        {
+          "order": 9,
+          "text": "apel",
+          "syllables": [
+            "a",
+            "pel"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/apel.png"
+        },
+        {
+          "order": 10,
+          "text": "ayam",
+          "syllables": [
+            "a",
+            "yam"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/ayam.png"
+        },
+        {
+          "order": 11,
+          "text": "ular",
+          "syllables": [
+            "u",
+            "lar"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/ular.png"
+        },
+        {
+          "order": 12,
+          "text": "awan",
+          "syllables": [
+            "a",
+            "wan"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/awan.png"
+        },
+        {
+          "order": 13,
+          "text": "mobil",
+          "syllables": [
+            "mo",
+            "bil"
+          ],
+          "category": "kendaraan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/mobil.png"
+        },
+        {
+          "order": 14,
+          "text": "gajah",
+          "syllables": [
+            "ga",
+            "jah"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/gajah.png"
+        },
+        {
+          "order": 15,
+          "text": "tikus",
+          "syllables": [
+            "ti",
+            "kus"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/tikus.png"
+        },
+        {
+          "order": 16,
+          "text": "kodok",
+          "syllables": [
+            "ko",
+            "dok"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kodok.png"
+        },
+        {
+          "order": 17,
+          "text": "nanas",
+          "syllables": [
+            "na",
+            "nas"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/nanas.png"
+        },
+        {
+          "order": 18,
+          "text": "telur",
+          "syllables": [
+            "te",
+            "lur"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/telur.png"
+        },
+        {
+          "order": 19,
+          "text": "tomat",
+          "syllables": [
+            "to",
+            "mat"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/tomat.png"
+        },
+        {
+          "order": 20,
+          "text": "jeruk",
+          "syllables": [
+            "je",
+            "ruk"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/jeruk.png"
+        },
+        {
+          "order": 21,
+          "text": "melon",
+          "syllables": [
+            "me",
+            "lon"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/melon.png"
+        },
+        {
+          "order": 22,
+          "text": "balon",
+          "syllables": [
+            "ba",
+            "lon"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/balon.png"
+        },
+        {
+          "order": 23,
+          "text": "bebek",
+          "syllables": [
+            "be",
+            "bek"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bebek.png"
+        },
+        {
+          "order": 24,
+          "text": "kapal",
+          "syllables": [
+            "ka",
+            "pal"
+          ],
+          "category": "kendaraan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kapal.png"
+        },
+        {
+          "order": 25,
+          "text": "bulan",
+          "syllables": [
+            "bu",
+            "lan"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bulan.png"
+        },
+        {
+          "order": 26,
+          "text": "gitar",
+          "syllables": [
+            "gi",
+            "tar"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/gitar.png"
+        },
+        {
+          "order": 27,
+          "text": "pohon",
+          "syllables": [
+            "po",
+            "hon"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pohon.png"
+        },
+        {
+          "order": 28,
+          "text": "rumah",
+          "syllables": [
+            "ru",
+            "mah"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/rumah.png"
+        },
+        {
+          "order": 29,
+          "text": "lebah",
+          "syllables": [
+            "le",
+            "bah"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/lebah.png"
+        },
+        {
+          "order": 30,
+          "text": "pintu",
+          "syllables": [
+            "pin",
+            "tu"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pintu.png"
+        },
+        {
+          "order": 31,
+          "text": "lampu",
+          "syllables": [
+            "lam",
+            "pu"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/lampu.png"
+        },
+        {
+          "order": 32,
+          "text": "kunci",
+          "syllables": [
+            "kun",
+            "ci"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kunci.png"
+        },
+        {
+          "order": 33,
+          "text": "tangan",
+          "syllables": [
+            "ta",
+            "ngan"
+          ],
+          "category": "tubuh",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/tangan.png"
+        },
+        {
+          "order": 34,
+          "text": "hidung",
+          "syllables": [
+            "hi",
+            "dung"
+          ],
+          "category": "tubuh",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/hidung.png"
+        },
+        {
+          "order": 35,
+          "text": "jagung",
+          "syllables": [
+            "ja",
+            "gung"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/jagung.png"
+        },
+        {
+          "order": 36,
+          "text": "gunung",
+          "syllables": [
+            "gu",
+            "nung"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/gunung.png"
+        },
+        {
+          "order": 37,
+          "text": "kucing",
+          "syllables": [
+            "ku",
+            "cing"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kucing.png"
+        },
+        {
+          "order": 38,
+          "text": "anjing",
+          "syllables": [
+            "an",
+            "jing"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/anjing.png"
+        },
+        {
+          "order": 39,
+          "text": "singa",
+          "syllables": [
+            "si",
+            "nga"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/singa.png"
+        },
+        {
+          "order": 40,
+          "text": "bunga",
+          "syllables": [
+            "bu",
+            "nga"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bunga.png"
+        },
+        {
+          "order": 41,
+          "text": "monyet",
+          "syllables": [
+            "mo",
+            "nyet"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/monyet.png"
+        },
+        {
+          "order": 42,
+          "text": "pisang",
+          "syllables": [
+            "pi",
+            "sang"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pisang.png"
+        },
+        {
+          "order": 43,
+          "text": "mangga",
+          "syllables": [
+            "mang",
+            "ga"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/mangga.png"
+        },
+        {
+          "order": 44,
+          "text": "anggur",
+          "syllables": [
+            "ang",
+            "gur"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/anggur.png"
+        },
+        {
+          "order": 45,
+          "text": "bintang",
+          "syllables": [
+            "bin",
+            "tang"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bintang.png"
+        },
+        {
+          "order": 46,
+          "text": "kentang",
+          "syllables": [
+            "ken",
+            "tang"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kentang.png"
+        },
+        {
+          "order": 47,
+          "text": "wortel",
+          "syllables": [
+            "wor",
+            "tel"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/wortel.png"
+        },
+        {
+          "order": 48,
+          "text": "kambing",
+          "syllables": [
+            "kam",
+            "bing"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kambing.png"
+        }
+      ]
+    },
+    {
+      "code": "three-syllable",
+      "title": "Kata Tiga Suku Kata",
+      "order": 3,
+      "nodeCount": 50,
+      "words": [
+        {
+          "order": 1,
+          "text": "kelapa",
+          "syllables": [
+            "ke",
+            "la",
+            "pa"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kelapa.png"
+        },
+        {
+          "order": 2,
+          "text": "sepatu",
+          "syllables": [
+            "se",
+            "pa",
+            "tu"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/sepatu.png"
+        },
+        {
+          "order": 3,
+          "text": "sepeda",
+          "syllables": [
+            "se",
+            "pe",
+            "da"
+          ],
+          "category": "kendaraan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/sepeda.png"
+        },
+        {
+          "order": 4,
+          "text": "kelinci",
+          "syllables": [
+            "ke",
+            "lin",
+            "ci"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kelinci.png"
+        },
+        {
+          "order": 5,
+          "text": "kamera",
+          "syllables": [
+            "ka",
+            "me",
+            "ra"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kamera.png"
+        },
+        {
+          "order": 6,
+          "text": "celana",
+          "syllables": [
+            "ce",
+            "la",
+            "na"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/celana.png"
+        },
+        {
+          "order": 7,
+          "text": "kemeja",
+          "syllables": [
+            "ke",
+            "me",
+            "ja"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kemeja.png"
+        },
+        {
+          "order": 8,
+          "text": "radio",
+          "syllables": [
+            "ra",
+            "di",
+            "o"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/radio.png"
+        },
+        {
+          "order": 9,
+          "text": "buaya",
+          "syllables": [
+            "bu",
+            "a",
+            "ya"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/buaya.png"
+        },
+        {
+          "order": 10,
+          "text": "gorila",
+          "syllables": [
+            "go",
+            "ri",
+            "la"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/gorila.png"
+        },
+        {
+          "order": 11,
+          "text": "koala",
+          "syllables": [
+            "ko",
+            "a",
+            "la"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/koala.png"
+        },
+        {
+          "order": 12,
+          "text": "jendela",
+          "syllables": [
+            "jen",
+            "de",
+            "la"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/jendela.png"
+        },
+        {
+          "order": 13,
+          "text": "harimau",
+          "syllables": [
+            "ha",
+            "ri",
+            "mau"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/harimau.png"
+        },
+        {
+          "order": 14,
+          "text": "jerapah",
+          "syllables": [
+            "je",
+            "ra",
+            "pah"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/jerapah.png"
+        },
+        {
+          "order": 15,
+          "text": "pesawat",
+          "syllables": [
+            "pe",
+            "sa",
+            "wat"
+          ],
+          "category": "kendaraan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/pesawat.png"
+        },
+        {
+          "order": 16,
+          "text": "telepon",
+          "syllables": [
+            "te",
+            "le",
+            "pon"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/telepon.png"
+        },
+        {
+          "order": 17,
+          "text": "selimut",
+          "syllables": [
+            "se",
+            "li",
+            "mut"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/selimut.png"
+        },
+        {
+          "order": 18,
+          "text": "bendera",
+          "syllables": [
+            "ben",
+            "de",
+            "ra"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/bendera.png"
+        },
+        {
+          "order": 19,
+          "text": "cokelat",
+          "syllables": [
+            "co",
+            "ke",
+            "lat"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/cokelat.png"
+        },
+        {
+          "order": 20,
+          "text": "mentega",
+          "syllables": [
+            "men",
+            "te",
+            "ga"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/mentega.png"
+        },
+        {
+          "order": 21,
+          "text": "merpati",
+          "syllables": [
+            "mer",
+            "pa",
+            "ti"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/merpati.png"
+        },
+        {
+          "order": 22,
+          "text": "kanguru",
+          "syllables": [
+            "ka",
+            "ngu",
+            "ru"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kanguru.png"
+        },
+        {
+          "order": 23,
+          "text": "pelangi",
+          "syllables": [
+            "pe",
+            "la",
+            "ngi"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/pelangi.png"
+        },
+        {
+          "order": 24,
+          "text": "pinguin",
+          "syllables": [
+            "pi",
+            "ngu",
+            "in"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/pinguin.png"
+        },
+        {
+          "order": 25,
+          "text": "beruang",
+          "syllables": [
+            "be",
+            "ru",
+            "ang"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/beruang.png"
+        },
+        {
+          "order": 26,
+          "text": "belalang",
+          "syllables": [
+            "be",
+            "la",
+            "lang"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/belalang.png"
+        },
+        {
+          "order": 27,
+          "text": "kepiting",
+          "syllables": [
+            "ke",
+            "pi",
+            "ting"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/kepiting.png"
+        },
+        {
+          "order": 28,
+          "text": "semangka",
+          "syllables": [
+            "se",
+            "mang",
+            "ka"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/semangka.png"
+        },
+        {
+          "order": 29,
+          "text": "stroberi",
+          "syllables": [
+            "stro",
+            "be",
+            "ri"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/stroberi.png"
+        },
+        {
+          "order": 30,
+          "text": "komputer",
+          "syllables": [
+            "kom",
+            "pu",
+            "ter"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/komputer.png"
+        },
+        {
+          "order": 31,
+          "text": "sekolah",
+          "syllables": [
+            "se",
+            "ko",
+            "lah"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/sekolah.png"
+        },
+        {
+          "order": 32,
+          "text": "lukisan",
+          "syllables": [
+            "lu",
+            "ki",
+            "san"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/lukisan.png"
+        },
+        {
+          "order": 33,
+          "text": "mahkota",
+          "syllables": [
+            "mah",
+            "ko",
+            "ta"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/mahkota.png"
+        },
+        {
+          "order": 34,
+          "text": "hadiah",
+          "syllables": [
+            "ha",
+            "di",
+            "ah"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/hadiah.png"
+        },
+        {
+          "order": 35,
+          "text": "mikrofon",
+          "syllables": [
+            "mi",
+            "kro",
+            "fon"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/mikrofon.png"
+        },
+        {
+          "order": 36,
+          "text": "jembatan",
+          "syllables": [
+            "jem",
+            "ba",
+            "tan"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/jembatan.png"
+        },
+        {
+          "order": 37,
+          "text": "hamburger",
+          "syllables": [
+            "ham",
+            "bur",
+            "ger"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/hamburger.png"
+        },
+        {
+          "order": 38,
+          "text": "penggaris",
+          "syllables": [
+            "peng",
+            "ga",
+            "ris"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/penggaris.png"
+        },
+        {
+          "order": 39,
+          "text": "flamingo",
+          "syllables": [
+            "fla",
+            "mi",
+            "ngo"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/flamingo.png"
+        }
+      ]
+    },
+    {
+      "code": "multiple",
+      "title": "Beberapa Kata",
+      "order": 4,
+      "nodeCount": 25,
+      "words": [
+        {
+          "order": 1,
+          "text": "apel merah",
+          "syllables": [
+            "a",
+            "pel",
+            "me",
+            "rah"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/apel.png"
+        },
+        {
+          "order": 2,
+          "text": "pisang kuning",
+          "syllables": [
+            "pi",
+            "sang",
+            "ku",
+            "ning"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pisang.png"
+        },
+        {
+          "order": 3,
+          "text": "anggur ungu",
+          "syllables": [
+            "ang",
+            "gur",
+            "u",
+            "ngu"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/anggur.png"
+        },
+        {
+          "order": 4,
+          "text": "kodok hijau",
+          "syllables": [
+            "ko",
+            "dok",
+            "hi",
+            "jau"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/kodok.png"
+        },
+        {
+          "order": 5,
+          "text": "awan putih",
+          "syllables": [
+            "a",
+            "wan",
+            "pu",
+            "tih"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/awan.png"
+        },
+        {
+          "order": 6,
+          "text": "jeruk oranye",
+          "syllables": [
+            "je",
+            "ruk",
+            "o",
+            "ra",
+            "nye"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/jeruk.png"
+        },
+        {
+          "order": 7,
+          "text": "sepatu biru",
+          "syllables": [
+            "se",
+            "pa",
+            "tu",
+            "bi",
+            "ru"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/2_tiga_suku_kata/kata_benda/sepatu.png"
+        },
+        {
+          "order": 8,
+          "text": "topi hitam",
+          "syllables": [
+            "to",
+            "pi",
+            "hi",
+            "tam"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/topi.png"
+        },
+        {
+          "order": 9,
+          "text": "mobil merah",
+          "syllables": [
+            "mo",
+            "bil",
+            "me",
+            "rah"
+          ],
+          "category": "kendaraan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/mobil.png"
+        },
+        {
+          "order": 10,
+          "text": "bintang kuning",
+          "syllables": [
+            "bin",
+            "tang",
+            "ku",
+            "ning"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bintang.png"
+        },
+        {
+          "order": 11,
+          "text": "pohon hijau",
+          "syllables": [
+            "po",
+            "hon",
+            "hi",
+            "jau"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/pohon.png"
+        },
+        {
+          "order": 12,
+          "text": "susu putih",
+          "syllables": [
+            "su",
+            "su",
+            "pu",
+            "tih"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/susu.png"
+        },
+        {
+          "order": 13,
+          "text": "balon merah",
+          "syllables": [
+            "ba",
+            "lon",
+            "me",
+            "rah"
+          ],
+          "category": "benda",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/balon.png"
+        },
+        {
+          "order": 14,
+          "text": "wortel oranye",
+          "syllables": [
+            "wor",
+            "tel",
+            "o",
+            "ra",
+            "nye"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/wortel.png"
+        },
+        {
+          "order": 15,
+          "text": "lumba-lumba biru",
+          "syllables": [
+            "lum",
+            "ba",
+            "lum",
+            "ba",
+            "bi",
+            "ru"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/lumba-lumba.png"
+        },
+        {
+          "order": 16,
+          "text": "bulan kuning",
+          "syllables": [
+            "bu",
+            "lan",
+            "ku",
+            "ning"
+          ],
+          "category": "alam",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/bulan.png"
+        },
+        {
+          "order": 17,
+          "text": "tomat merah",
+          "syllables": [
+            "to",
+            "mat",
+            "me",
+            "rah"
+          ],
+          "category": "buah",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/tomat.png"
+        },
+        {
+          "order": 18,
+          "text": "kura-kura hijau",
+          "syllables": [
+            "ku",
+            "ra",
+            "ku",
+            "ra",
+            "hi",
+            "jau"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/kura-kura.png"
+        },
+        {
+          "order": 19,
+          "text": "kupu-kupu oranye",
+          "syllables": [
+            "ku",
+            "pu",
+            "ku",
+            "pu",
+            "o",
+            "ra",
+            "nye"
+          ],
+          "category": "hewan",
+          "example": null,
+          "image": "assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/kupu-kupu.png"
+        },
+        {
+          "order": 20,
+          "text": "jagung kuning",
+          "syllables": [
+            "ja",
+            "gung",
+            "ku",
+            "ning"
+          ],
+          "category": "makanan",
+          "example": null,
+          "image": "assets/dataset_gambar/1_dua_suku_kata/kata_benda/jagung.png"
+        }
+      ]
+    }
+  ],
+  "gameTypes": [
+    {
+      "code": "speaking",
+      "title": "Dengar & Ulangi"
+    },
+    {
+      "code": "find-object",
+      "title": "Cari Objek"
+    },
+    {
+      "code": "missing-letter",
+      "title": "Huruf Hilang"
+    },
+    {
+      "code": "matching",
+      "title": "Permainan Cocokkan"
+    },
+    {
+      "code": "listening",
+      "title": "Dengar & Pilih"
+    },
+    {
+      "code": "fill-blank",
+      "title": "Isi Huruf Kosong"
+    }
+  ],
+  "rewardTiers": [
+    {
+      "code": "perunggu",
+      "title": "Perunggu",
+      "minStars": 10
+    },
+    {
+      "code": "perak",
+      "title": "Perak",
+      "minStars": 50
+    },
+    {
+      "code": "emas",
+      "title": "Emas",
+      "minStars": 150
+    },
+    {
+      "code": "berlian",
+      "title": "Berlian",
+      "minStars": 300
+    }
+  ]
+}

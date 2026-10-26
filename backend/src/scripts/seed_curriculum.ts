@@ -6,13 +6,18 @@ import { config } from '../config/env.js';
 async function main() {
   logger.info('====================================================');
   logger.info('Kogo Voice Learning - Curriculum Seeder');
-  logger.info('Target Database : ' + config.database.database + ' @ ' + config.database.host + ':' + config.database.port);
+  logger.info(
+    'Target Database : ' +
+      (config.database.connectionString
+        ? 'DATABASE_URL'
+        : config.database.database + ' @ ' + config.database.host + ':' + config.database.port)
+  );
   logger.info('====================================================');
 
   // 1. Cek koneksi database
   const health = await checkDatabaseHealth();
   if (!health.connected) {
-    logger.error('Cannot connect to database: ' + health.error);
+    logger.error('Cannot connect to database (see the warning above for details).');
     logger.info('Please verify your .env configuration and database service status.');
     await closeDbPool();
     process.exit(1);

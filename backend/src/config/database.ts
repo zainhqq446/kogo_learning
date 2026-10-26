@@ -1,20 +1,35 @@
 import { Pool, PoolConfig } from 'pg';
-import { config } from './env.js';
+import { config, DatabaseConfig } from './env.js';
 import { logger } from '../utils/logger.js';
 
 let pool: Pool | null = null;
 
-export function getPoolConfig(): PoolConfig {
+/**
+ * Membangun konfigurasi pool PostgreSQL dari DATABASE_URL (prioritas) atau DB_*.
+ * Saat DB_SSL aktif, sertifikat server diverifikasi kecuali
+ * DB_SSL_REJECT_UNAUTHORIZED=false secara eksplisit.
+ */
+export function getPoolConfig(dbConfig: DatabaseConfig = config.database): PoolConfig {
+  const ssl = dbConfig.ssl ? { rejectUnauthorized: dbConfig.sslRejectUnauthorized } : false;
+  const common: PoolConfig = {
+    ssl,
+    max: dbConfig.maxConnections,
+    idleTimeoutMillis: dbConfig.idleTimeoutMillis,
+    connectionTimeoutMillis: dbConfig.connectionTimeoutMillis,
+    application_name: 'kogo-backend',
+  };
+
+  if (dbConfig.connectionString) {
+    return { ...common, connectionString: dbConfig.connectionString };
+  }
+
   return {
-    host: config.database.host,
-    port: config.database.port,
-    database: config.database.database,
-    user: config.database.user,
-    password: config.database.password,
-    ssl: config.database.ssl ? { rejectUnauthorized: false } : false,
-    max: config.database.maxConnections,
-    idleTimeoutMillis: config.database.idleTimeoutMillis,
-    connectionTimeoutMillis: config.database.connectionTimeoutMillis,
+    ...common,
+    host: dbConfig.host,
+    port: dbConfig.port,
+    database: dbConfig.database,
+    user: dbConfig.user,
+    password: dbConfig.password,
   };
 }
 
@@ -36,29 +51,44 @@ export function getDbPool(): Pool {
 export interface DbHealthResult {
   connected: boolean;
   latencyMs?: number;
-  error?: string;
 }
 
 /**
- * Uji koneksi aktif ke PostgreSQL tanpa menghentikan server bila gagal.
+ * Uji koneksi aktif ke PostgreSQL. Detail error hanya dicatat di log server,
+ * tidak pernah dikembalikan ke klien.
  */
-export async function checkDatabaseHealth(): Promise<DbHealthResult> {
-  const currentPool = getDbPool();
+export async function checkDatabaseHealth(targetPool: Pool = getDbPool()): Promise<DbHealthResult> {
   const startTime = Date.now();
 
   try {
-    const client = await currentPool.connect();
+    const client = await targetPool.connect();
     try {
       await client.query('SELECT 1');
-      const latencyMs = Date.now() - startTime;
-      return { connected: true, latencyMs };
+      return { connected: true, latencyMs: Date.now() - startTime };
     } finally {
       client.release();
     }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.warn(`PostgreSQL health check failed (lazy check): ${errorMsg}`);
-    return { connected: false, error: errorMsg };
+    logger.warn(`PostgreSQL health check failed: ${errorMsg}`);
+    return { connected: false };
+  }
+}
+
+/**
+ * Menunggu database siap (dipakai saat startup container agar tidak gagal
+ * ketika PostgreSQL masih booting).
+ */
+export async function waitForDatabase(targetPool: Pool, maxWaitSeconds: number): Promise<boolean> {
+  const deadline = Date.now() + maxWaitSeconds * 1000;
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    const health = await checkDatabaseHealth(targetPool);
+    if (health.connected) return true;
+    if (Date.now() >= deadline) return false;
+    logger.info(`Waiting for PostgreSQL (attempt ${attempt})...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
 
@@ -67,8 +97,9 @@ export async function checkDatabaseHealth(): Promise<DbHealthResult> {
  */
 export async function closeDbPool(): Promise<void> {
   if (pool) {
-    await pool.end();
+    const current = pool;
     pool = null;
+    await current.end();
     logger.info('PostgreSQL connection pool closed.');
   }
 }
