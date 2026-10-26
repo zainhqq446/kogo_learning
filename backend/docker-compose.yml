@@ -1,0 +1,139 @@
+# =============================================================================
+# Kogo Belajar backend - Docker Compose (Coolify compatible)
+#
+# Local:
+#   POSTGRES_PASSWORD=$(openssl rand -hex 24) APP_DB_PASSWORD=$(openssl rand -hex 24) \
+#   JWT_SECRET=$(openssl rand -hex 48) docker compose up -d --build
+#
+# Coolify (see docs/DEPLOYMENT_COOLIFY.md):
+#   - New Resource -> Public/Private Git repository -> Build Pack "Docker Compose"
+#   - Base Directory: /backend          Docker Compose Location: /docker-compose.yml
+#   - Domain for service "api": https://be-kogo.taro.web.id:4000
+#       (the ":4000" suffix tells Coolify's Traefik which container port to use;
+#        the public URL stays https://be-kogo.taro.web.id on port 443)
+#   - Set the required variables (POSTGRES_PASSWORD, APP_DB_PASSWORD, JWT_SECRET,
+#     ADMIN_*) in the Environment Variables tab. Variables marked ":?" are
+#     mandatory; every other variable below has a safe default.
+#   - The database is NOT published on a host port; only the api service is
+#     reachable through Traefik.
+#
+# Database roles: POSTGRES_USER is the superuser and is only known to the db
+# container. The API connects as APP_DB_USER, a non-superuser role created by
+# docker/postgres/10-kogo-app-role.sh on the first start of the db volume.
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kogo-backend:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # --- Server ---
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4000
+      API_PREFIX: /api
+      # Trust X-Forwarded-For only from private-network peers (Traefik / Docker network).
+      TRUST_PROXY: ${TRUST_PROXY:-loopback, linklocal, uniquelocal}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      APP_VERSION: ${APP_VERSION:-2.0.0}
+      # --- Database ---
+      # Internal compose network. DATABASE_URL (if set) overrides DB_*, e.g. to
+      # use a separate Coolify PostgreSQL resource instead of `db`.
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-kogo_research}
+      DB_USER: ${APP_DB_USER:-kogo_app}
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD (password of the non-superuser API role)}
+      DB_SSL: ${DB_SSL:-false}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-true}
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-10}
+      DB_IDLE_TIMEOUT_MILLIS: ${DB_IDLE_TIMEOUT_MILLIS:-30000}
+      DB_CONNECTION_TIMEOUT_MILLIS: ${DB_CONNECTION_TIMEOUT_MILLIS:-5000}
+      # --- Startup ---
+      RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
+      DB_WAIT_SECONDS: ${DB_WAIT_SECONDS:-60}
+      # --- Auth ---
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET (openssl rand -hex 48)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      DEVICE_TOKEN_TTL: ${DEVICE_TOKEN_TTL:-180d}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-10}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # --- Devices (API v2) ---
+      # Empty = open registration, new devices stay "pending" until a researcher approves them.
+      DEVICE_ENROLLMENT_KEY: ${DEVICE_ENROLLMENT_KEY:-}
+      SYNC_MAX_CLOCK_SKEW_HOURS: ${SYNC_MAX_CLOCK_SKEW_HOURS:-24}
+      # Max stored sessions + attempts per pending (unapproved) device; beyond it sync returns 403 DEVICE_PENDING_QUOTA.
+      PENDING_DEVICE_MAX_ITEMS: ${PENDING_DEVICE_MAX_ITEMS:-20000}
+      # --- Rate limits ---
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10}
+      RATE_LIMIT_VOICE_PER_MIN: ${RATE_LIMIT_VOICE_PER_MIN:-60}
+      RATE_LIMIT_VOICE_PER_IP_PER_MIN: ${RATE_LIMIT_VOICE_PER_IP_PER_MIN:-120}
+      RATE_LIMIT_SYNC_PER_MIN: ${RATE_LIMIT_SYNC_PER_MIN:-60}
+      RATE_LIMIT_DEVICE_REGISTER_PER_HOUR: ${RATE_LIMIT_DEVICE_REGISTER_PER_HOUR:-20}
+      # --- ElevenLabs (optional; empty key = voice endpoints return 503 NOT_CONFIGURED) ---
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_BASE_URL: ${ELEVENLABS_BASE_URL:-https://api.elevenlabs.io/v1}
+      ELEVENLABS_DEFAULT_VOICE_ID: ${ELEVENLABS_DEFAULT_VOICE_ID:-}
+      ELEVENLABS_DEFAULT_MODEL_ID: ${ELEVENLABS_DEFAULT_MODEL_ID:-eleven_multilingual_v2}
+      ELEVENLABS_ALLOWED_VOICE_IDS: ${ELEVENLABS_ALLOWED_VOICE_IDS:-}
+      ELEVENLABS_ALLOWED_MODEL_IDS: ${ELEVENLABS_ALLOWED_MODEL_IDS:-}
+      ELEVENLABS_STT_MODEL_ID: ${ELEVENLABS_STT_MODEL_ID:-scribe_v2}
+      ELEVENLABS_LANGUAGE_CODE: ${ELEVENLABS_LANGUAGE_CODE:-id}
+      ELEVENLABS_TEXT_NORMALIZATION: ${ELEVENLABS_TEXT_NORMALIZATION:-auto}
+      ELEVENLABS_TTS_TIMEOUT_MS: ${ELEVENLABS_TTS_TIMEOUT_MS:-15000}
+      ELEVENLABS_STT_TIMEOUT_MS: ${ELEVENLABS_STT_TIMEOUT_MS:-20000}
+      ELEVENLABS_DAILY_CHAR_BUDGET: ${ELEVENLABS_DAILY_CHAR_BUDGET:-20000}
+      ELEVENLABS_DAILY_STT_SECONDS_BUDGET: ${ELEVENLABS_DAILY_STT_SECONDS_BUDGET:-1800}
+      TTS_MAX_TEXT_LENGTH: ${TTS_MAX_TEXT_LENGTH:-300}
+      MAX_AUDIO_UPLOAD_BYTES: ${MAX_AUDIO_UPLOAD_BYTES:-2097152}
+      TTS_CACHE_ENABLED: ${TTS_CACHE_ENABLED:-true}
+      TTS_CACHE_MAX_MB: ${TTS_CACHE_MAX_MB:-256}
+      TTS_CACHE_DIR: /app/data/tts-cache
+    # Container port for Traefik (no host port publishing).
+    expose:
+      - "4000"
+    volumes:
+      - kogo_api_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 15s
+
+  db:
+    # postgres:16-alpine + init script for the non-superuser API role.
+    build:
+      context: ./docker/postgres
+    image: kogo-postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kogo_research}
+      POSTGRES_USER: ${POSTGRES_USER:-kogo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (superuser, used only inside the db container)}
+      APP_DB_USER: ${APP_DB_USER:-kogo_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD (password of the non-superuser API role)}
+    volumes:
+      - kogo_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      # TCP check (-h 127.0.0.1): healthy only after the init scripts have finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  kogo_pg_data:
+  kogo_api_data:

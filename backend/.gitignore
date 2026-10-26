@@ -7,3 +7,9 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 Thumbs.db
+
+# Runtime data (TTS audio cache)
+/data/
+
+# Re-include the documented template (the repository root ignores .env.*)
+!.env.example

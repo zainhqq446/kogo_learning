@@ -1,51 +1,30 @@
-import 'dart:io';
-
-/// Konfigurasi terpusat untuk komunikasi dengan backend server Kogo Voice Learning.
-/// Mendukung deteksi otomatis alamat IP / hostname yang sesuai untuk:
-/// - Windows Desktop / macOS / Linux: http://127.0.0.1:4000/api
-/// - Android Emulator: http://10.0.2.2:4000/api
-/// - Device Fisik / Custom Host: dapat disesuaikan via setter atau environment variable `KOGO_BACKEND_URL`
+/// Alamat backend Kogo (sinkronisasi data penelitian).
+///
+/// Bawaan: server produksi `https://be-kogo.taro.web.id/api`. Dapat diganti saat
+/// build (`--dart-define=KOGO_BACKEND_URL=https://host/api`) atau saat runtime
+/// dari Mode Peneliti (disimpan di pengaturan perangkat).
 class BackendConfig {
   BackendConfig._();
 
-  static String? _customBaseUrl;
+  static const String defaultApiBaseUrl = String.fromEnvironment('KOGO_BACKEND_URL', defaultValue: 'https://be-kogo.taro.web.id/api');
 
-  /// Mengatur backend base URL kustom saat runtime (misalnya dari pengaturan IP guru/peneliti).
-  static void setBaseUrl(String url) {
-    _customBaseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  /// Kunci pendaftaran perangkat (opsional, `--dart-define=KOGO_ENROLLMENT_KEY=...`).
+  /// Bila server memasang `DEVICE_ENROLLMENT_KEY` yang sama, tablet langsung
+  /// disetujui; tanpa kunci, peneliti menyetujui perangkat dari server.
+  static const String enrollmentKey = String.fromEnvironment('KOGO_ENROLLMENT_KEY');
+
+  /// Menormalkan URL: tanpa garis miring di akhir dan selalu berakhiran `/api`.
+  static String normalize(String url) {
+    var u = url.trim();
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    return u.endsWith('/api') ? u : '$u/api';
   }
 
-  /// Base URL endpoint API backend Kogo (selalu berakhiran `/api`)
-  static String get apiBaseUrl {
-    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
-      return _customBaseUrl!.endsWith('/api') ? _customBaseUrl! : '$_customBaseUrl/api';
-    }
-
-    // Periksa apakah didefinisikan melalui Dart environment variable
-    const envUrl = String.fromEnvironment('KOGO_BACKEND_URL', defaultValue: '');
-    if (envUrl.isNotEmpty) {
-      return envUrl.endsWith('/api') ? envUrl : '$envUrl/api';
-    }
-
-    try {
-      if (Platform.isAndroid) {
-        // Pada perangkat fisik Android dengan adb reverse (tcp:4000), 127.0.0.1:4000 dapat diakses langsung.
-        // Jika tidak disetel secara eksplisit, gunakan 127.0.0.1 agar kompatibel dengan adb reverse di perangkat fisik
-        // dan tetap mengizinkan custom IP melalui setter atau KOGO_BACKEND_URL.
-        return 'http://127.0.0.1:4000/api';
-      }
-    } catch (_) {}
-
-    // Default untuk Windows, Web, Linux, macOS
-    return 'http://127.0.0.1:4000/api';
-  }
-
-  /// URL akar server backend (tanpa akhiran `/api`)
-  static String get serverRootUrl {
-    final api = apiBaseUrl;
-    if (api.endsWith('/api')) {
-      return api.substring(0, api.length - 4);
-    }
-    return api;
+  /// `true` bila URL valid (http/https dengan host).
+  static bool isValid(String url) {
+    final uri = Uri.tryParse(url.trim());
+    return uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
   }
 }

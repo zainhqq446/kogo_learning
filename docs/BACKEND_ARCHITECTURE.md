@@ -1,5 +1,18 @@
 # Arsitektur Backend dan Infrastruktur Produksi — Kogo Voice Learning
 
+> **Status (2.0):** This is the original design proposal and is kept for the thesis history. Several details below
+> describe a *target* that was implemented differently. The authoritative, implemented behaviour is in
+> [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) and [DEPLOYMENT_COOLIFY.md](./DEPLOYMENT_COOLIFY.md). Notable differences:
+> - Routes are `/api/v2/devices/register`, `/api/v2/sync`, `/api/v2/research/metrics`, `/api/v2/research/export/*.csv`
+>   and `/api/voice/tts|stt` (not `/api/v1/sync/batches`, `/api/v1/tts/synthesize`); there is no refresh endpoint yet.
+> - The thesis ERD is implemented by `backend/migrations/004_thesis_erd.sql` (`materi`, `word_types`, `words`,
+>   `reward_tiers`, `app_devices`, `learners`, `game_sessions`, `answer_attempts`, `stars`, `rewards`).
+> - UUIDs use PostgreSQL's built-in `gen_random_uuid()`; the `uuid-ossp` extension is no longer required.
+> - Devices authenticate with a device token (JWT HS256, `tokenType: device`, `sub` = internal device id); re-registration
+>   needs the one-time `deviceSecret`; new devices are pending until a researcher approves them
+>   (`migrations/005_device_trust_and_voice_budget.sql`). Staff accounts come from the admin bootstrap; there is no public registration.
+> - Deployment is Docker/Coolify (not PM2/NGINX); the TTS cache is a disk volume (no S3).
+
 Dokumen ini memuat analisis sistem terkini, evaluasi arsitektur, spesifikasi teknis backend, desain basis data, kontrak antarmuka API, protokol sinkronisasi offline-to-online, keamanan data anak, serta rencana migrasi untuk platform edukasi anak usia dini **Kogo Voice Learning**.
 
 ---

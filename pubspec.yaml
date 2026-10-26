@@ -1,8 +1,8 @@
 name: kogo_voice_learning
-description: "A voice-based learning application for early childhood education."
+description: "Kogo Belajar — interactive Android learning media with voice recognition for early-childhood word exploration (ages 5–6)."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ^3.13.4
@@ -10,25 +10,21 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
-  # UI & application architecture
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^3.4.3
-  go_router: ^18.0.1
 
-  # Local database
+  # Local database (offline-first)
   sqflite: ^2.4.4
   path: ^1.9.1
-  path_provider: ^2.1.5
-
-  # Speech recognition
-  speech_to_text: 7.5.0
-  whisper_cpp_flutter_plus: ^0.4.1
-  # Microphone / audio recording
-  record: 7.1.1
-  crypto: ^3.0.7
   uuid: ^4.6.0
+
+  # Voice: Google Speech-to-Text (Android SpeechRecognizer) & Text-to-Speech
+  speech_to_text: 7.5.0
   flutter_tts: ^4.2.5
+
+  # Sound effects & background music
   audioplayers: ^6.8.1
 
 dev_dependencies:
@@ -42,27 +38,11 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/indonesian_phoneme/
-    - assets/audio/instructions/
-    - assets/audio/invitations/
-    - assets/audio/correct/
-    - assets/audio/almost_correct/
-    - assets/audio/incorrect/
-    - assets/audio/no_recognition/
-    - assets/audio/streak/
-    - assets/audio/completion/
-    - assets/audio/words/
-    - assets/audio/games/
-    - assets/data/
-    - assets/images/
-    - assets/images/words/
-    - assets/dataset_gambar/
+    - assets/audio/sfx/
+    - assets/audio/bgm/
+    # Only concrete-noun images are bundled (thesis scope: fruits, animals,
+    # everyday objects). Verb/adjective folders stay in the repository but
+    # are not shipped in the APK.
     - assets/dataset_gambar/1_dua_suku_kata/kata_benda/
-    - assets/dataset_gambar/1_dua_suku_kata/kata_kerja/
-    - assets/dataset_gambar/1_dua_suku_kata/kata_sifat/
     - assets/dataset_gambar/2_tiga_suku_kata/kata_benda/
-    - assets/dataset_gambar/2_tiga_suku_kata/kata_kerja/
-    - assets/dataset_gambar/2_tiga_suku_kata/kata_sifat/
     - assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_benda/
-    - assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_kerja/
-    - assets/dataset_gambar/3_lebih_dari_tiga_suku_kata/kata_sifat/

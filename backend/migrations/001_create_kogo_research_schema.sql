@@ -4,12 +4,13 @@
 -- Reference: docs/BACKEND_ARCHITECTURE.md & lib/data/database/app_database.dart
 -- ============================================================================
 
--- 1. Ekstensi UUID
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- 1. UUID: memakai gen_random_uuid() bawaan PostgreSQL 13+ sehingga tidak
+--    membutuhkan ekstensi "uuid-ossp" (sering tidak tersedia / butuh superuser
+--    di layanan PostgreSQL terkelola).
 
 -- 2. Tabel Users (Guru & Peneliti)
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(100) NOT NULL,
@@ -24,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- 3. Tabel Participants (Peserta Didik / Anak - Menggunakan Pseudonim, Tanpa PII)
 CREATE TABLE IF NOT EXISTS participants (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     participant_code VARCHAR(50) NOT NULL UNIQUE, -- Contoh: P001, P002 (sesuai seed SQLite)
     display_alias VARCHAR(50) NOT NULL,          -- Contoh: "Anak 1" (ramah anak, bebas PII)
     age_years SMALLINT CHECK (age_years >= 2 AND age_years <= 12),
@@ -40,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_participants_code ON participants(participant_cod
 
 -- 4. Tabel Devices (Pencatatan Perangkat Fisik Mobile)
 CREATE TABLE IF NOT EXISTS devices (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     device_identifier VARCHAR(100) NOT NULL UNIQUE, -- Device ID stabil dari aplikasi
     device_label VARCHAR(100),
     platform VARCHAR(20) NOT NULL CHECK (platform IN ('android', 'ios', 'windows', 'macos', 'linux')),
@@ -88,7 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_questions_lesson ON questions(lesson_id);
 
 -- 6. Tabel Research Sessions (Sesi Belajar & Penelitian)
 CREATE TABLE IF NOT EXISTS research_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_session_uuid UUID NOT NULL UNIQUE, -- UUID v4 dari SQLite klien untuk idempotensi sinkronisasi
     participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE RESTRICT,
@@ -105,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_device ON research_sessions(device_id);
 
 -- 7. Tabel Speech Attempts (Setiap Percobaan Suara Anak)
 CREATE TABLE IF NOT EXISTS speech_attempts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_attempt_uuid UUID NOT NULL UNIQUE, -- UUID v4 dari SQLite klien untuk idempotensi sinkronisasi
     session_id UUID NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,
     participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
@@ -128,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_attempts_participant_question ON speech_attempts(
 
 -- 8. Tabel Similarity Evaluations (Hasil Komputasi Jarak Levenshtein & Kemiripan)
 CREATE TABLE IF NOT EXISTS similarity_evaluations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     attempt_id UUID NOT NULL UNIQUE REFERENCES speech_attempts(id) ON DELETE CASCADE,
     normalized_target VARCHAR(100) NOT NULL,
     normalized_recognized VARCHAR(255) NOT NULL,
@@ -151,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_correct ON similarity_evaluations(is_
 
 -- 9. Tabel Audit Logs (Jejak Akses Data Penelitian & Ekspor)
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     action VARCHAR(50) NOT NULL, -- LOGIN, EXPORT_RESEARCH_DATA, VIEW_PARTICIPANTS
     resource_affected VARCHAR(100),

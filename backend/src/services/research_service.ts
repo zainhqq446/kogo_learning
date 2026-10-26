@@ -1,8 +1,14 @@
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import { Participant, Device, ResearchSession, SpeechAttempt, SimilarityEvaluation } from '../types/research.js';
-import { NotFoundError, ValidationError } from '../types/errors.js';
+import { ConflictError, NotFoundError } from '../types/errors.js';
 import { config } from '../config/env.js';
+import { normalizeError } from '../middlewares/error_handler.js';
+
+/** Pesan error per item yang aman dikirim ke klien (tanpa pesan mentah PostgreSQL). */
+function safeItemError(err: unknown): string {
+  return normalizeError(err).message;
+}
 
 export class ResearchService {
   constructor(private pool: Pool) {}
@@ -60,7 +66,7 @@ export class ResearchService {
     // Cek apakah code sudah ada
     const existing = await this.pool.query('SELECT id FROM participants WHERE participant_code = $1', [code]);
     if (existing.rowCount && existing.rowCount > 0) {
-      throw new ValidationError(`Participant code '${code}' is already registered`);
+      throw new ConflictError(`Participant code '${code}' is already registered`, 'PARTICIPANT_EXISTS');
     }
 
     const pinHash = await bcrypt.hash(params.pin, config.auth.bcryptSaltRounds);
@@ -114,7 +120,7 @@ export class ResearchService {
         createdCount++;
         results.push({ code, status: 'created' });
       } catch (err: unknown) {
-        results.push({ code, status: 'failed', error: err instanceof Error ? err.message : String(err) });
+        results.push({ code, status: 'failed', error: safeItemError(err) });
       }
     }
 
@@ -270,7 +276,7 @@ export class ResearchService {
       evaluationStatus: 'EXACT_MATCH' | 'ACCEPTED_SIMILAR' | 'INCORRECT' | 'UNRECOGNIZED';
       thresholdUsed?: number;
       evaluationMethod?: string;
-      feedbackText?: string;
+      feedbackText?: string | null;
     };
   }): Promise<{ attempt: SpeechAttempt; evaluation: SimilarityEvaluation }> {
     const client = await this.pool.connect();
@@ -485,11 +491,11 @@ export class ResearchService {
           });
           sessionResults.push({ clientSessionUuid: s.clientSessionUuid, status: 'created' });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         sessionResults.push({
           clientSessionUuid: s.clientSessionUuid,
           status: 'failed',
-          error: err.message || 'Unknown database error',
+          error: safeItemError(err),
         });
       }
     }
@@ -533,11 +539,11 @@ export class ResearchService {
           });
           attemptResults.push({ clientAttemptUuid: a.clientAttemptUuid, status: 'created' });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         attemptResults.push({
           clientAttemptUuid: a.clientAttemptUuid,
           status: 'failed',
-          error: err.message || 'Unknown database error',
+          error: safeItemError(err),
         });
       }
     }

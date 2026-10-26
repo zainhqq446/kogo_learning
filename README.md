@@ -1,124 +1,112 @@
-# Kogo Learning Platform
+# Kogo Belajar
 
-Repositori resmi untuk proyek pembelajaran kata berbasis suara anak usia dini (PAUD) **Kogo Voice Learning** dan layanan sinkronisasi data penelitian **Kogo Backend**.
-
----
-
-## 📁 Struktur Monorepo Proyek
-
-Repositori ini memisahkan secara modular antara aplikasi mobile klien (*frontend*) dan layanan server (*backend*):
+Voice-based word exploration app for early-childhood learners (ages 5–6), built for the
+undergraduate thesis *"Pengembangan Media Pembelajaran Eksplorasi Kata Berbasis Voice Recognition
+untuk Anak Usia Dini"* (Zain M Haqqo, 2207112580). The repository contains the Android app
+(Flutter) and the research sync backend (Node.js + PostgreSQL).
 
 ```text
 kogo_learning/
-├── backend/                  # RESTful API, PostgreSQL Migrations, Telemetri Penelitian & Proxy Suara
-│   ├── migrations/           # Skrip migrasi skema database PostgreSQL
-│   ├── src/                  # Kode sumber TypeScript (Express, Controllers, Services)
-│   ├── .env.example          # Template environment variable backend
-│   ├── package.json          # Manajemen dependensi backend
-│   └── README.md             # Dokumentasi teknis & endpoint API lengkap
-├── kogo/                     # Aplikasi Mobile Pembelajaran PAUD (Flutter)
-│   ├── assets/               # Gambar (450 kata/gambar), Model Phoneme Whisper, Audio SFX & Voice
-│   ├── lib/                  # Arsitektur Flutter (Clean Architecture, Riverpod, SQLite Offline-first)
-│   ├── test/                 # Test suites (Activity, Stage Locking, Navigation, Audio, DB)
-│   └── pubspec.yaml          # Spesifikasi paket & aset Flutter
-└── README.md                 # Petunjuk utama repositori & dokumentasi API
+├── lib/        # Flutter app (Android)
+├── test/       # Unit + widget tests (flutter test)
+├── assets/     # Picture vocabulary, sound effects, background music
+├── android/    # Android host project (minSdk 26 = Android 8.0)
+├── tool/       # Asset/vocabulary generators
+├── backend/    # Research sync API (Express + TypeScript + PostgreSQL, Docker)
+└── docs/       # API reference and Coolify deployment guide
 ```
 
----
+## Thesis scope (Batasan Masalah)
 
-## 🚀 Panduan Memulai Cepat
+| Scope item | How the app satisfies it |
+| :--- | :--- |
+| Learners aged 5–6 | Biodata form only accepts age 5 or 6; large touch targets, voice guidance on every screen, no reading required to navigate. |
+| Android 8.0 (Oreo) minimum | `minSdk = 26`, portrait-only, tested layouts at 360×740 dp. |
+| Voice recognition for simple words, no custom ASR | Uses the device's Google speech recognizer (`speech_to_text`, `id_ID`) and evaluates pronunciation with a lightweight phonetic matcher (`lib/services/speech/pronunciation_evaluator.dart`). |
+| Word exploration and pronunciation, not advanced reading | Four materials: letters, two-syllable words, three-syllable words, short color phrases. |
+| Everyday vocabulary (fruit, animals, objects) | 87 picture words, 20 color phrases and 22 letters in `lib/core/curriculum/vocabulary.dart`. |
 
-### 1. Backend Service (`backend/`)
+## App features
 
-Backend berbasis Node.js & TypeScript untuk mengelola autentikasi, proksifikasi suara TTS/STT, serta sinkronisasi data offline-to-online.
+- **Onboarding** – splash, child biodata (name, school, age, avatar) with validation, microphone
+  permission and Indonesian TTS check. Several children can share one device.
+- **Home / Rewards / Profile tabs** following the Figma design (bear mascot, gradient cards,
+  progress chips, reward tiers Perunggu 10 ⭐, Perak 50 ⭐, Emas 150 ⭐, Berlian 300 ⭐, learning streak).
+- **Stage map** per material: units of up to four words, five games per unit, sequential unlocking,
+  1–3 stars per game based on first-try accuracy.
+- **Games**
+  - *Dengar & Ulangi* (listen and repeat, voice recognition): up to three tries, "almost" feedback,
+    silence does not cost a try, the word is revealed after three misses.
+  - *Cari Objek* (find the object starting with a letter), *Huruf Hilang* (missing letter),
+    *Permainan Cocokkan* (match word to picture), *Dengar & Pilih* (listen and choose),
+    *Isi Huruf Kosong* (fill the blanks).
+- **Indonesian voice with intonation** – Google TTS (`id-ID`) driven by a prosody planner that
+  splits text into phrases and adjusts pitch, rate and pauses per mood (greeting, question,
+  praise, encouragement, spelling, syllables). See `lib/services/audio/prosody_planner.dart`.
+- **Child-friendly motion and sound** – entrance/loop/press animations, confetti, star reveals,
+  synthesized sound effects, background music that ducks while Kogo speaks or listens; all
+  animations respect the system "remove animations" setting.
+- **Research mode** (behind a parental gate) – field-test metrics from Table 3.1 of the thesis:
+  STT accuracy rate, task completion rate, system response time and system error rate, per
+  child and per device, plus backend URL and manual sync.
+
+## Data model
+
+Local SQLite (`kogo_voice_learning.db`, schema v11) maps the thesis ERD:
+
+| Thesis entity | Storage |
+| :--- | :--- |
+| Users | `learners` |
+| GameSessions | `game_sessions` |
+| Stars | `stars` (best result per game node) |
+| Rewards | `rewards` |
+| AnswerLogs | `answer_attempts` (target, recognized text, alternatives, score, response time, STT error) |
+| Materi / Stages / WordType / Words | static curriculum in `lib/core/curriculum/` |
+
+The app is fully offline-first. Completed sessions are synced in the background to the backend
+(`POST /api/v2/sync`, idempotent by client UUID) when a connection is available.
+
+## Development
+
+Requirements: Flutter 3.47 (Dart 3.13), Android SDK, JDK 17.
 
 ```bash
-# Masuk ke direktori backend
-cd backend
-
-# Instal dependensi
-npm install
-
-# Setup environment
-cp .env.example .env
-
-# Jalankan dalam mode pengembangan
-npm run dev
-```
-
-### 2. Mobile App Client (`kogo/`)
-
-Aplikasi Flutter multi-platform untuk anak usia dini dengan pengenalan suara offline (Whisper lokal) dan suara interaktif Kogo.
-
-```bash
-# Masuk ke direktori frontend kogo
-cd kogo
-
-# Ambil paket dependensi
 flutter pub get
-
-# Jalankan unit & widget test
+flutter analyze
 flutter test
-
-# Jalankan aplikasi ke perangkat / emulator
-flutter run
+flutter run                       # device or emulator with Google app + Indonesian TTS data
+flutter build apk --release       # build/app/outputs/flutter-apk/app-release.apk
 ```
 
----
+The backend URL defaults to `https://be-kogo.taro.web.id/api` and can be overridden at build time
+(`--dart-define=KOGO_BACKEND_URL=https://host/api`) or at runtime in Research mode.
 
-## 🌐 Dokumentasi API Backend (`backend`)
+Release signing uses `android/key.properties` when present (not committed); otherwise the debug
+key is used so the APK can be installed for testing.
 
-Backend berjalan secara default pada port `4000` (Base URL: `http://localhost:4000/api`).
+Optional visual check of every screen with real fonts:
 
-### 1. Health & Server Status
-| Method | Endpoint | Auth | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/health` | Public | Pengecekan status server, uptime, dan status koneksi database PostgreSQL (non-blocking). |
+```bash
+KOGO_SCREENSHOTS=/tmp/shots flutter test test/screenshots/screenshots_test.dart
+```
 
-### 2. Autentikasi Pengguna & Peneliti (`/api/auth`)
-| Method | Endpoint | Auth | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Public | Pendaftaran akun peneliti/guru baru. |
-| `POST` | `/api/auth/register/child` | Public | Pendaftaran profil anak (kode anak, PIN, grup usia). |
-| `POST` | `/api/auth/login` | Public | Login akun untuk memperoleh JWT Bearer token. |
-| `POST` | `/api/auth/logout` | Bearer Token | Logout dan invalidasi sesi token. |
-| `GET` | `/api/auth/me` | Bearer Token | Mengambil data profil dan role pengguna aktif. |
+### Device requirements
 
-### 3. Voice Proxy & Speech Service (`/api/voice`)
-Endpoint proksi suara aman untuk mencegah kebocoran kredensial API key suara pada sisi klien.
-| Method | Endpoint | Auth | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/voice/status` | Bearer Token | Cek status ketersediaan provider suara (ElevenLabs / Whisper). |
-| `POST` | `/api/voice/tts` | Public / Bearer | Sintesis teks ke audio suara Kogo yang ramah anak. |
-| `POST` | `/api/voice/synthesize` | Public / Bearer | Alias endpoint untuk sintesis suara TTS ElevenLabs. |
-| `POST` | `/api/voice/stt` | Public / Bearer | Transkripsi audio ucapan anak menjadi teks. |
-| `POST` | `/api/voice/transcribe` | Public / Bearer | Alias endpoint untuk transkripsi audio STT. |
+- Android 8.0+ with the Google app (speech recognition) and Google Text-to-Speech.
+- Indonesian voice data installed in Google TTS (Settings → Text-to-speech). The app checks this
+  during setup and offers a shortcut to the TTS settings.
+- Internet is only needed for speech recognition on devices without offline Indonesian
+  recognition, and for syncing research data.
 
-### 4. Data Penelitian & Telemetri PAUD (`/api/...`)
-Seluruh endpoint penelitian dilindungi verifikasi JWT Bearer Token dengan otorisasi berbasis peran (`admin`, `researcher`, `teacher`).
-| Method | Endpoint | Role | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/participants` | admin, researcher, teacher | Mengambil daftar partisipan anak (kode pseudonim). |
-| `POST` | `/api/participants` | admin, researcher | Mendaftarkan partisipan anak baru. |
-| `POST` | `/api/participants/batch` | admin, researcher | Impor data batch partisipan penelitian. |
-| `GET` | `/api/participants/:code` | admin, researcher, teacher | Mengambil detail riwayat & profil partisipan tertentu. |
-| `GET` | `/api/devices` | admin, researcher | Mengambil daftar tablet/device yang terdaftar. |
-| `POST` | `/api/devices` | admin, researcher, teacher | Mendaftarkan device ID tablet yang digunakan anak. |
-| `GET` | `/api/sessions` | admin, researcher, teacher | Mengambil daftar sesi belajar yang telah dicatat. |
-| `POST` | `/api/sessions` | admin, researcher, teacher | Membuat catatan sesi pembelajaran baru. |
-| `GET` | `/api/attempts` | admin, researcher | Mengambil log rekaman suara & akurasi kemiripan fonem. |
-| `POST` | `/api/attempts` | admin, researcher, teacher | Mencatat hasil pengucapan suara anak per kata. |
-| `GET` | `/api/summary` | admin, researcher | Ringkasan agregasi metrik pengenalan suara penelitian. |
-| `POST` | `/api/sync/batch` | admin, researcher, teacher | Sinkronisasi batch data sesi & progres offline dari SQLite ke PostgreSQL. |
+## Backend
 
----
+See [`backend/README.md`](backend/README.md), [`docs/API_DOCUMENTATION.md`](docs/API_DOCUMENTATION.md)
+and [`docs/DEPLOYMENT_COOLIFY.md`](docs/DEPLOYMENT_COOLIFY.md) for running the API locally,
+the v2 sync contract and deployment to Coolify at `be-kogo.taro.web.id`.
 
-## 🔒 Standar Keamanan & Perlindungan Privasi Anak
-- **Zero PII Exposure**: Data anak diidentifikasi melalui pseudonim anonim (`participant_code`).
-- **Sanitized Logging**: Kredensial, token, dan PIN secara otomatis disensor dari log server.
-- **Offline-First Resilience**: Aplikasi mobile tetap berfungsi penuh tanpa koneksi internet dengan database SQLite lokal, dan melakukan sinkronisasi otomatis ketika terhubung kembali ke backend.
+## Privacy
 
----
-
-## 📄 Lisensi & Kontributor
-Dikembangkan untuk pengujian interaksi suara dan edukasi anak usia dini (PAUD).
+- Children are stored only on the device by name, school and age; the backend receives these
+  records for research analysis over HTTPS and never receives audio recordings.
+- Research mode and biodata changes are protected by a parental gate.
+- No secrets are stored in the repository; backend secrets are provided via environment variables.
