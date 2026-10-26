@@ -103,7 +103,8 @@ class GoogleSpeechListener implements SpeechListener {
     final completer = _active = Completer<ListenOutcome>();
     var alternates = <String>[];
     double? confidence;
-    var lastHeardAt = DateTime.now();
+    // Stopwatch monoton: tidak terpengaruh perubahan jam sistem (NTP).
+    final sinceLastHeard = Stopwatch()..start();
     Timer? watchdog;
     Timer? grace;
 
@@ -118,7 +119,7 @@ class GoogleSpeechListener implements SpeechListener {
         ListenOutcome(
           alternates: heard,
           error: heard.isEmpty ? (err ?? ListenError.noSpeech) : null,
-          responseMs: DateTime.now().difference(lastHeardAt).inMilliseconds,
+          responseMs: sinceLastHeard.elapsedMilliseconds,
           confidence: confidence,
         ),
       );
@@ -142,7 +143,7 @@ class GoogleSpeechListener implements SpeechListener {
           final list = [r.recognizedWords, ...r.alternates.map((a) => a.recognizedWords)].where((t) => t.trim().isNotEmpty).toSet().toList();
           if (list.isEmpty) return;
           alternates = list;
-          lastHeardAt = DateTime.now();
+          sinceLastHeard.reset();
           if (r.hasConfidenceRating) confidence = r.confidence;
           onPartial?.call(r.recognizedWords);
           if (accept(list)) {
