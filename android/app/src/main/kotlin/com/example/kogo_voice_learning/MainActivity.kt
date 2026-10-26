@@ -3,6 +3,7 @@ package com.example.kogo_voice_learning
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,6 +21,7 @@ class MainActivity : FlutterActivity() {
                     launch(Intent("com.android.settings.TTS_SETTINGS")) ||
                         launch(Intent(Settings.ACTION_SETTINGS))
                 )
+                "deviceModel" -> result.success("${Build.MANUFACTURER} ${Build.MODEL}".trim())
                 else -> result.notImplemented()
             }
         }

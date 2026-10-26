@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/backend_config.dart';
 import '../../data/app_settings.dart';
 import '../../data/db/kogo_database.dart';
+import '../system_settings.dart';
 
 /// Respons HTTP sederhana.
 class HttpResult {
@@ -17,7 +18,25 @@ class HttpResult {
   final Map<String, dynamic> body;
 }
 
-typedef JsonPost = Future<HttpResult> Function(Uri url, Map<String, dynamic> body, {String? bearer});
+typedef JsonPost = Future<HttpResult> Function(Uri url, Map<String, dynamic> body, {String? bearer, Map<String, String>? headers});
+
+/// Status perangkat ini di server (diketahui dari registrasi terakhir).
+class DeviceStatus {
+  const DeviceStatus({required this.registered, this.approved = false, this.deviceId});
+
+  final bool registered;
+
+  /// Perangkat baru berstatus "menunggu" sampai disetujui peneliti; datanya
+  /// tetap tersimpan di server tetapi belum masuk metrik.
+  final bool approved;
+  final String? deviceId;
+}
+
+/// Server menolak perangkat ini; sinkronisasi berhenti dengan pesan untuk peneliti.
+class _DeviceRejected implements Exception {
+  const _DeviceRejected(this.message);
+  final String message;
+}
 
 class SyncReport {
   const SyncReport({required this.ok, this.learners = 0, this.sessions = 0, this.attempts = 0, this.rejected = 0, this.message});
@@ -82,13 +101,40 @@ class SyncService {
     _debounce = Timer(const Duration(seconds: 3), () => unawaited(syncNow()));
   }
 
-  Future<SyncReport> syncNow() => _running ??= _sync().whenComplete(() => _running = null);
+  /// [refreshDevice] meminta token baru agar status persetujuan perangkat
+  /// diperbarui (dipakai tombol sinkron di Mode Peneliti).
+  Future<SyncReport> syncNow({bool refreshDevice = false}) => _running ??= _sync(refreshDevice).whenComplete(() => _running = null);
 
-  Future<SyncReport> _sync() async {
+  /// Status perangkat untuk server yang sedang dipakai.
+  Future<DeviceStatus> deviceStatus() async {
+    final base = await apiBaseUrl();
+    final token = await _settings.get(AppSettings.deviceKey('token', base));
+    if (token == null) return const DeviceStatus(registered: false);
+    return DeviceStatus(registered: true, approved: await _settings.get(AppSettings.deviceKey('approved', base)) == '1', deviceId: _tokenDeviceId(token));
+  }
+
+  /// Mengganti server: kredensial server lama tetap disimpan (terikat alamatnya)
+  /// dan seluruh data dikirim ulang karena server baru belum memilikinya.
+  /// Server menerima pengiriman ulang secara idempoten (berdasarkan clientUuid).
+  Future<void> switchServer(String? apiBaseUrl) async {
+    final previous = await this.apiBaseUrl();
+    await _settings.set(AppSettings.backendUrlKey, apiBaseUrl);
+    if (await this.apiBaseUrl() == previous) return;
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      for (final table in const ['learners', 'game_sessions', 'answer_attempts']) {
+        await txn.update(table, {'is_synced': 0}, where: 'is_synced <> 0');
+      }
+    });
+    await _settings.set(AppSettings.lastSyncKey, null);
+  }
+
+  Future<SyncReport> _sync(bool refreshDevice) async {
     try {
       await _recoverInFlight();
       final base = await apiBaseUrl();
-      final token = await _deviceToken(base);
+      var token = await _deviceToken(base, refresh: refreshDevice);
+      var reauthenticated = refreshDevice;
       var learners = 0, sessions = 0, attempts = 0, rejected = 0;
       for (var round = 0; round < 50; round++) {
         final batch = await _claimBatch();
@@ -100,14 +146,17 @@ class SyncService {
           await _release(batch);
           rethrow;
         }
-        if (res.status == 401) {
+        if (res.status == 401 && !reauthenticated) {
+          // Token kedaluwarsa / JWT server dirotasi / perangkat dihapus: daftar ulang sekali.
           await _release(batch);
-          await _settings.set(AppSettings.deviceTokenKey, null);
-          return const SyncReport(ok: false, message: 'Token perangkat kedaluwarsa. Coba sinkronkan lagi.');
+          reauthenticated = true;
+          await _settings.set(AppSettings.deviceKey('token', base), null);
+          token = await _deviceToken(base);
+          continue;
         }
         if (res.status != 200) {
           await _release(batch);
-          return SyncReport(ok: false, message: 'Server menolak (${res.status}).');
+          return SyncReport(ok: false, message: _errorMessage(res));
         }
         final rejectedItems = ((res.body['data'] as Map?)?['rejected'] as List?) ?? const [];
         await _commit(batch, rejectedItems.whereType<Map>().map((r) => '${r['clientUuid']}').toSet());
@@ -118,6 +167,8 @@ class SyncService {
       }
       await _settings.set(AppSettings.lastSyncKey, DateTime.now().toUtc().toIso8601String());
       return SyncReport(ok: true, learners: learners, sessions: sessions, attempts: attempts, rejected: rejected);
+    } on _DeviceRejected catch (e) {
+      return SyncReport(ok: false, message: e.message);
     } on SocketException {
       return const SyncReport(ok: false, message: 'Tidak ada koneksi ke server.');
     } on TimeoutException {
@@ -130,26 +181,72 @@ class SyncService {
     }
   }
 
-  Future<String> _deviceToken(String base) async {
-    final token = await _settings.get(AppSettings.deviceTokenKey);
-    final expiry = DateTime.tryParse(await _settings.get(AppSettings.deviceTokenExpiryKey) ?? '');
-    if (token != null && expiry != null && expiry.isAfter(DateTime.now().add(const Duration(days: 1)))) return token;
+  /// Token perangkat untuk [base]; mendaftar (ulang) bila belum ada, hampir
+  /// kedaluwarsa, atau [refresh]. Pendaftaran ulang membuktikan kepemilikan
+  /// dengan `deviceSecret` dari pendaftaran pertama dan token yang masih berlaku.
+  Future<String> _deviceToken(String base, {bool refresh = false}) async {
+    String key(String name) => AppSettings.deviceKey(name, base);
+    final token = await _settings.get(key('token'));
+    final expiry = DateTime.tryParse(await _settings.get(key('expiry')) ?? '');
+    if (!refresh && token != null && expiry != null && expiry.isAfter(DateTime.now().add(const Duration(days: 1)))) return token;
 
     var deviceUuid = await _settings.get(AppSettings.deviceUuidKey);
     if (deviceUuid == null) {
       deviceUuid = const Uuid().v4();
       await _settings.set(AppSettings.deviceUuidKey, deviceUuid);
     }
-    final res = await _post(Uri.parse('$base/v2/devices/register'), {'deviceUuid': deviceUuid, 'platform': 'android', 'appVersion': appVersion});
+    final secret = await _settings.get(key('secret'));
+    final model = await SystemSettings.deviceModel();
+    final res = await _post(
+      Uri.parse('$base/v2/devices/register'),
+      {
+        'deviceUuid': deviceUuid,
+        'platform': 'android',
+        'appVersion': appVersion,
+        if (model != null && model.isNotEmpty) 'model': _clip(model, 64),
+        'deviceSecret': ?secret,
+      },
+      bearer: token,
+      headers: {if (BackendConfig.enrollmentKey.isNotEmpty) 'X-Enrollment-Key': BackendConfig.enrollmentKey},
+    );
     final data = res.body['data'] as Map?;
     final newToken = data?['deviceToken'] as String?;
+    if (res.status == 403 || res.status == 409) throw _DeviceRejected(_errorMessage(res));
     if ((res.status != 200 && res.status != 201) || newToken == null) {
       throw HttpException('register device failed (${res.status})');
     }
+    final newSecret = data?['deviceSecret'] as String?;
+    if (newSecret != null) await _settings.set(key('secret'), newSecret);
     final seconds = (data?['expiresIn'] as num?)?.toInt() ?? 86400;
-    await _settings.set(AppSettings.deviceTokenKey, newToken);
-    await _settings.set(AppSettings.deviceTokenExpiryKey, DateTime.now().add(Duration(seconds: seconds)).toIso8601String());
+    await _settings.set(key('token'), newToken);
+    await _settings.set(key('expiry'), DateTime.now().add(Duration(seconds: seconds)).toIso8601String());
+    await _settings.set(key('approved'), data?['approved'] == true ? '1' : '0');
     return newToken;
+  }
+
+  /// Pesan untuk peneliti berdasarkan kode galat server.
+  static String _errorMessage(HttpResult res) {
+    return switch (res.body['code']) {
+      'DEVICE_REVOKED' => 'Perangkat ini dicabut oleh peneliti di server. Data tidak dikirim.',
+      'DEVICE_PROOF_REQUIRED' => 'Perangkat sudah terdaftar dengan kunci lain. Minta peneliti mereset kredensial perangkat ini di server.',
+      'ENROLLMENT_REQUIRED' => 'Server meminta kunci pendaftaran perangkat (KOGO_ENROLLMENT_KEY).',
+      _ when res.status == 401 => 'Perangkat belum terverifikasi server. Coba sinkronkan lagi.',
+      _ when res.status == 429 => 'Terlalu banyak permintaan ke server. Coba lagi beberapa menit lagi.',
+      _ when res.status >= 500 => 'Server sedang bermasalah (${res.status}). Coba lagi nanti.',
+      _ => 'Server menolak (${res.status}).',
+    };
+  }
+
+  /// `deviceId` dari payload JWT (tanpa verifikasi; hanya untuk ditampilkan).
+  static String? _tokenDeviceId(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      return payload is Map ? payload['deviceId'] as String? : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static const appVersion = '2.0.0';
@@ -279,13 +376,14 @@ class SyncService {
   /// `NULL` bila kosong agar klausa `IN ()` tetap valid di SQLite.
   static String _placeholders(List<int> ids) => ids.isEmpty ? 'NULL' : List.filled(ids.length, '?').join(',');
 
-  static Future<HttpResult> _defaultPost(Uri url, Map<String, dynamic> body, {String? bearer}) async {
+  static Future<HttpResult> _defaultPost(Uri url, Map<String, dynamic> body, {String? bearer, Map<String, String>? headers}) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {
       return await () async {
         final req = await client.postUrl(url);
         req.headers.contentType = ContentType.json;
         if (bearer != null) req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+        headers?.forEach(req.headers.set);
         req.add(utf8.encode(jsonEncode(body)));
         final res = await req.close();
         final text = await res.transform(utf8.decoder).join();

@@ -38,6 +38,7 @@ class _ResearchPageState extends State<ResearchPage> {
   ResearchMetrics? _allMetrics;
   int _pending = 0;
   DateTime? _lastSync;
+  DeviceStatus? _device;
   bool _syncing = false;
   String? _syncMessage;
   bool _soundOn = AudioService.instance.soundOn;
@@ -65,12 +66,14 @@ class _ResearchPageState extends State<ResearchPage> {
     final pending = await SyncService.instance.pendingCount();
     final last = await SyncService.instance.lastSyncAt();
     final url = await SyncService.instance.apiBaseUrl();
+    final device = await SyncService.instance.deviceStatus();
     if (!mounted) return;
     setState(() {
       _learnerMetrics = learnerMetrics;
       _allMetrics = all;
       _pending = pending;
       _lastSync = last;
+      _device = device;
       _urlController.text = url;
     });
   }
@@ -82,14 +85,11 @@ class _ResearchPageState extends State<ResearchPage> {
       return;
     }
     final normalized = BackendConfig.normalize(url);
-    final previous = await SyncService.instance.apiBaseUrl();
-    await _settings.set(AppSettings.backendUrlKey, normalized == BackendConfig.normalize(BackendConfig.defaultApiBaseUrl) ? null : normalized);
-    if (normalized != previous) {
-      // Token perangkat terikat pada server; minta ulang untuk server baru.
-      await _settings.set(AppSettings.deviceTokenKey, null);
-    }
+    final messenger = ScaffoldMessenger.of(context);
+    await SyncService.instance.switchServer(normalized == BackendConfig.normalize(BackendConfig.defaultApiBaseUrl) ? null : normalized);
     _urlController.text = normalized;
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alamat server disimpan.')));
+    messenger.showSnackBar(const SnackBar(content: Text('Alamat server disimpan.')));
+    await _load();
   }
 
   Future<void> _sync() async {
@@ -97,7 +97,7 @@ class _ResearchPageState extends State<ResearchPage> {
       _syncing = true;
       _syncMessage = null;
     });
-    final report = await SyncService.instance.syncNow();
+    final report = await SyncService.instance.syncNow(refreshDevice: true);
     if (!mounted) return;
     setState(() {
       _syncing = false;
@@ -184,6 +184,7 @@ class _ResearchPageState extends State<ResearchPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  Text('Perangkat: ${_deviceLabel(_device)}'),
                   Text('Belum terkirim: $_pending data'),
                   Text('Terakhir sinkron: ${_lastSync == null ? '-' : _formatTime(_lastSync!)}'),
                   if (_syncMessage != null) ...[
@@ -313,6 +314,13 @@ class _ResearchPageState extends State<ResearchPage> {
         ),
       ),
     );
+  }
+
+  static String _deviceLabel(DeviceStatus? d) {
+    if (d == null) return '-';
+    if (!d.registered) return 'belum terdaftar di server';
+    final id = d.deviceId == null ? '' : ' (ID ${d.deviceId!.substring(0, d.deviceId!.length.clamp(0, 8))})';
+    return d.approved ? 'disetujui peneliti$id' : 'menunggu persetujuan peneliti$id';
   }
 
   Widget _metricsTable(ResearchMetrics? m) {

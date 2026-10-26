@@ -15,6 +15,6 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   AudioService.disabled = true;
   VoiceService.instance = VoiceService(SilentSpeechEngine());
   // Tanpa jaringan di test: server dianggap tidak tersedia.
-  SyncService.instance = SyncService(post: (url, body, {bearer}) async => const HttpResult(503, {}));
+  SyncService.instance = SyncService(post: (url, body, {bearer, headers}) async => const HttpResult(503, {}));
   await testMain();
 }

@@ -12,9 +12,11 @@ class AppSettings {
   static const musicOnKey = 'music_on';
   static const backendUrlKey = 'backend_url';
   static const deviceUuidKey = 'device_uuid';
-  static const deviceTokenKey = 'device_token';
-  static const deviceTokenExpiryKey = 'device_token_expiry';
   static const lastSyncKey = 'last_sync_at';
+
+  /// Kredensial perangkat (token, masa berlaku, rahasia, status persetujuan)
+  /// terikat pada satu server; kuncinya diberi akhiran alamat API.
+  static String deviceKey(String name, String apiBaseUrl) => 'device_$name@$apiBaseUrl';
 
   Future<String?> get(String key) async {
     final db = await _database.database;

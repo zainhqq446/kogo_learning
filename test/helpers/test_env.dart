@@ -16,7 +16,7 @@ Future<({SilentSpeechEngine voice, FakeSpeechListener listener})> resetTestEnv()
   final listener = FakeSpeechListener();
   VoiceService.instance = VoiceService(voice);
   SpeechListeners.current = listener;
-  SyncService.instance = SyncService(post: (url, body, {bearer}) async => const HttpResult(503, {}));
+  SyncService.instance = SyncService(post: (url, body, {bearer, headers}) async => const HttpResult(503, {}));
   AppSession.instance = AppSession();
   return (voice: voice, listener: listener);
 }

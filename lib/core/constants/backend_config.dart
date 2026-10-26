@@ -8,6 +8,11 @@ class BackendConfig {
 
   static const String defaultApiBaseUrl = String.fromEnvironment('KOGO_BACKEND_URL', defaultValue: 'https://be-kogo.taro.web.id/api');
 
+  /// Kunci pendaftaran perangkat (opsional, `--dart-define=KOGO_ENROLLMENT_KEY=...`).
+  /// Bila server memasang `DEVICE_ENROLLMENT_KEY` yang sama, tablet langsung
+  /// disetujui; tanpa kunci, peneliti menyetujui perangkat dari server.
+  static const String enrollmentKey = String.fromEnvironment('KOGO_ENROLLMENT_KEY');
+
   /// Menormalkan URL: tanpa garis miring di akhir dan selalu berakhiran `/api`.
   static String normalize(String url) {
     var u = url.trim();
