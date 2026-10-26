@@ -30,10 +30,12 @@ async function main(): Promise<void> {
     logger.info('====================================================');
   });
 
-  // Lebih panjang dari idle timeout reverse proxy (Traefik) untuk mencegah 502
-  // akibat koneksi keep-alive yang ditutup server lebih dulu.
-  server.keepAliveTimeout = 65_000;
-  server.headersTimeout = 66_000;
+  // Keep-alive Node harus lebih lama dari idle timeout koneksi upstream reverse
+  // proxy (Traefik: 90 detik) agar Traefik yang menutup koneksi idle lebih dulu;
+  // bila Node menutup duluan, request yang sedang dikirim ulang Traefik lewat
+  // koneksi itu berakhir 502. headersTimeout harus > keepAliveTimeout.
+  server.keepAliveTimeout = 95_000;
+  server.headersTimeout = 96_000;
 }
 
 // Penanganan graceful shutdown
