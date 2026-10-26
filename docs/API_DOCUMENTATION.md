@@ -18,7 +18,7 @@ Deployment: see [DEPLOYMENT_COOLIFY.md](./DEPLOYMENT_COOLIFY.md).
 | Local base URL | `http://localhost:4000/api` (Android emulator: `http://10.0.2.2:4000/api`) |
 | Content type | `application/json` (except audio and CSV responses) |
 | JSON body limit | 1 MB (STT route: `MAX_AUDIO_UPLOAD_BYTES`, default 2 MB) |
-| Timestamps | ISO 8601 **with timezone**, e.g. `2026-10-25T08:00:00.000Z`. In Dart use `DateTime.now().toUtc().toIso8601String()`. Timestamps without `Z`/offset are rejected. |
+| Timestamps | ISO 8601 **with timezone** (`Z` or `+HH:MM`/`-HH:MM`), e.g. `2026-10-25T08:00:00.000Z`. In Dart use `DateTime.now().toUtc().toIso8601String()`. Timestamps without `Z`/offset are rejected. Device timestamps sent to `POST /api/v2/sync` follow extra rules (section 5.2). |
 | UUIDs | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (hex, case-insensitive; stored lower-case). Use UUID v4 on the device. |
 
 ### Success envelope
@@ -51,6 +51,7 @@ Clients should branch on `code`, not on `message` (messages may be Indonesian or
 | 401 | `DEVICE_NOT_REGISTERED` | Device token refers to a device that no longer exists: register again |
 | 403 | `FORBIDDEN` | Authenticated but role not allowed |
 | 403 | `DEVICE_NOT_APPROVED` | Device is still `pending` (voice proxy only; sync is allowed) |
+| 403 | `DEVICE_PENDING_QUOTA` | Sync only: the device is still `pending` and the request would take its stored game sessions + answer attempts above `PENDING_DEVICE_MAX_ITEMS` (default 20000). Nothing from the request is stored; keep the data queued and retry after a researcher approves the device |
 | 403 | `DEVICE_REVOKED` | A researcher revoked this device (sync, voice and re-registration refused) |
 | 403 | `ENROLLMENT_REQUIRED` | `DEVICE_ENROLLMENT_KEY` is configured and the `X-Enrollment-Key` header is missing or wrong |
 | 404 | `NOT_FOUND` | Unknown route or resource |
@@ -179,7 +180,7 @@ Responses:
 - **409 `DEVICE_PROOF_REQUIRED`** known `deviceUuid` without a matching `deviceSecret` or device token. The `deviceUuid` alone is not a credential, so a leaked UUID cannot be used to impersonate the tablet.
 - **403 `DEVICE_REVOKED`** the device was revoked by a researcher. **403 `ENROLLMENT_REQUIRED`** see `X-Enrollment-Key`.
 
-`approved`: without `DEVICE_ENROLLMENT_KEY` new devices start as **pending**. They can sync (data is stored) but their data is excluded from metrics/exports by default and they cannot use the voice proxy until a researcher approves them (section 5.5). Devices registered with a valid enrollment key are approved immediately.
+`approved`: without `DEVICE_ENROLLMENT_KEY` new devices start as **pending**. They can sync (data is stored, up to `PENDING_DEVICE_MAX_ITEMS` game sessions + answer attempts, see section 5.2) but their data is excluded from metrics/exports by default and they cannot use the voice proxy until a researcher approves them (section 5.5). Devices registered with a valid enrollment key are approved immediately.
 
 `expiresIn` is in seconds. Re-register (sending `deviceSecret`, or the current token as `Authorization`) when the token is close to expiry or when a call returns `401` (`TOKEN_EXPIRED`, `INVALID_TOKEN`, `DEVICE_NOT_REGISTERED`). On `409 DEVICE_PROOF_REQUIRED` ask the researcher to run `reset-credential` for this device.
 
@@ -212,7 +213,14 @@ Header: `Authorization: Bearer <deviceToken>`.
 | `sessions` | 200 | `materi` in `letters`, `two-syllable`, `three-syllable`, `multiple`; `gameType` in `speaking`, `find-object`, `missing-letter`, `matching`, `listening`, `fill-blank`; `status` in `started`, `completed`, `abandoned`; `nodeIndex` >= 0; `totalItems` 0-20; `firstTryCorrect` 0-20 and <= `totalItems`; `stars` 0-3; `endedAt` ISO or `null` |
 | `attempts` | 1000 | `targetText` 1-60, `answerText` 0-200, `attemptNumber` >= 1, `similarity` 0-1 or `null`, `responseMs` >= 0 or `null`, `sttError` <= 40 chars or `null` |
 
-All arrays are optional. More items than the maximum -> **400** for the whole request (split into several requests). Strings must not contain NUL (U+0000). Device timestamps (`createdAt`, `updatedAt`, `startedAt`, `endedAt`) more than `SYNC_MAX_CLOCK_SKEW_HOURS` (default 24 h) in the future are rejected per item as `INVALID` (`detail` mentions the device clock); timestamps in the past are always accepted.
+All arrays are optional. More items than the maximum -> **400** for the whole request (split into several requests). Strings must not contain NUL (U+0000).
+
+Device timestamps (`createdAt`, `updatedAt`, `startedAt`, `endedAt`) come from the tablet clock:
+
+- The offset must be `Z` or between `-15:59` and `+15:59` (the range PostgreSQL can store). Otherwise the item is rejected as `INVALID` (`detail` names the field); the rest of the request is still processed. The app always sends UTC (`Z`).
+- A timestamp that can only come from a wrong tablet clock, either before `2000-01-01T00:00:00Z` (e.g. a clock reset to 1970 after the battery ran flat) or more than `SYNC_MAX_CLOCK_SKEW_HOURS` (default 24 h) in the future, is **clamped** to the server's current time and the item is accepted. A wrong clock therefore never causes data loss, but the clamped fields carry the sync time, so date filters in metrics and exports count those items on the day they were synced.
+- Because each field is clamped on its own, a session whose `endedAt` would end up before `startedAt` is stored with `endedAt = startedAt`.
+- Any other timestamp (from 2000-01-01 up to the skew limit) is stored as sent.
 
 Semantics:
 
@@ -222,7 +230,8 @@ Semantics:
 - Sessions: insert, or update `status`/totals/`stars`/`endedAt`. Status never goes backwards (`started` < `abandoned` < `completed`): a `completed` session stays completed, and its results (`totalItems`, `firstTryCorrect`, `stars`, `endedAt`) are final once completed.
 - Attempts: insert-only.
 - `accepted` counts distinct `clientUuid`s; a duplicate inside one request is stored and counted once.
-- Pending (unapproved) devices can sync; revoked devices get **403 `DEVICE_REVOKED`** for the whole request.
+- Pending (unapproved) devices can sync until they have stored `PENDING_DEVICE_MAX_ITEMS` (default 20000) game sessions + answer attempts in total. A request that would go above the limit is refused as a whole with **403 `DEVICE_PENDING_QUOTA`** and nothing is written. Learners and re-sent items that are already stored do not count. The app keeps the data queued and sends it after a researcher approves the device; approved devices have no limit. This bounds what an unknown device can store through the open registration.
+- Revoked devices get **403 `DEVICE_REVOKED`** for the whole request.
 - A session's `learnerUuid` and an attempt's `sessionUuid`/`learnerUuid` must exist in the database (synced earlier by this device) or be accepted in the same request.
 - After sessions are processed the server maintains `stars` (best stars per learner + materi + node, from `completed` sessions only) and `rewards` (Perunggu 10, Perak 50, Emas 150, Berlian 300 total stars; `earned_at` = first time reached).
 
@@ -246,9 +255,9 @@ Response **200** (also when some items were rejected):
 | `UNKNOWN_LEARNER` | Referenced learner not found / rejected | Send the learner first (or in the same request) |
 | `UNKNOWN_SESSION` | Referenced session not found / rejected | Send the session first (or in the same request) |
 | `FOREIGN_DEVICE` | UUID belongs to another device | Do not retry; regenerate UUIDs if this is a copy |
-| `INVALID` | Item failed validation (`detail` explains) | Fix or drop the item; retrying unchanged will fail again |
+| `INVALID` | Item failed validation (`detail` explains), e.g. a UTC offset beyond +/-15:59 or a name with forbidden characters | Fix or drop the item; retrying unchanged will fail again |
 
-Mark an item as synced when it is not listed in `rejected` (accepted items include unchanged duplicates).
+Mark an item as synced when it is not listed in `rejected` (accepted items include unchanged duplicates). When the whole request fails (error envelope instead of 200, e.g. `401`, `403 DEVICE_REVOKED`, `403 DEVICE_PENDING_QUOTA`, `429 RATE_LIMITED`, `5xx`), nothing was stored: keep every item queued.
 
 ### 5.3 `GET /api/v2/research/metrics`
 
@@ -257,7 +266,7 @@ Role `admin` or `researcher`. Query (all optional; an empty value such as `?from
 | Param | Meaning |
 | :--- | :--- |
 | `learnerUuid` | one learner |
-| `from`, `to` | `YYYY-MM-DD` or ISO datetime with offset; both inclusive; a date-only `to` covers the whole UTC day. Sessions are filtered by `startedAt`, attempts by `createdAt`. |
+| `from`, `to` | `YYYY-MM-DD` or ISO datetime with offset; both inclusive. A date-only `from` starts at 00:00 UTC; a date-only `to` covers the whole UTC day. The two forms can be mixed, e.g. a datetime `from` with a date-only `to`: `from=2026-10-25T08:00:00%2B07:00&to=2026-10-25` runs from 08:00 WIB to the end of 25 October (UTC). `from` later than the end of `to` -> 400 `VALIDATION_ERROR`. URL-encode `+` in offsets as `%2B` (a literal `+` in a query string is read as a space). To filter by local days in Indonesia, use datetimes with `%2B07:00`. Sessions are filtered by `startedAt`, attempts by `createdAt`. |
 | `devices` | `approved` (default): only data from devices approved by a researcher. `all`: also pending devices (to review data before approving). Revoked devices are always excluded. |
 
 ```json
@@ -287,8 +296,8 @@ Metric definitions (thesis Table 3.1). Percentages have 2 decimals; `null` when 
 | `sttCorrect` | speaking attempts with `isCorrect = true` |
 | `sttAccuracy` | `sttCorrect / sttAttempts x 100` (target >= 70%) |
 | `sttErrors` | speaking attempts with `sttError` not null |
-| `errorRate` | sessions with >= 1 STT error / `sessionsStarted` x 100. This is the thesis "System Error Rate" of Table 3.1, `(Error / Total Sesi) x 100%`, target <= 10% |
-| `errorRatePerAttempt` | `sttErrors / sttAttempts x 100` (per-attempt rate; this is what the app's on-device research page shows as "System Error Rate", so report which one you use) |
+| `errorRate` | (sessions with >= 1 STT error / `sessionsStarted`) x 100. This is the thesis "System Error Rate" of Table 3.1, `(Error / Total Sesi) x 100%`, target <= 10%. The app's on-device research page (Research mode) shows the same per-session formula, so the app and the server report comparable values |
+| `errorRatePerAttempt` | `sttErrors / sttAttempts x 100`. Supplementary per-attempt diagnostic only; it is **not** the Table 3.1 metric and is not what the app shows. Report `errorRate` for Table 3.1 |
 | `avgResponseMs` | mean `responseMs` of speaking attempts, rounded (target <= 3000 ms) |
 | `sessionsStarted` | all sessions (any status) |
 | `sessionsCompleted` | sessions with status `completed` |
@@ -303,7 +312,7 @@ Metric definitions (thesis Table 3.1). Percentages have 2 decimals; `null` when 
 
 - `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="kogo-attempts-YYYYMMDD-HHMMSS.csv"`.
 - UTF-8 BOM (Excel friendly), header row, CRLF line endings, RFC 4180 quoting.
-- Formula-injection guard: text cells starting with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'`.
+- Formula-injection guard: text cells starting with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'`. The same characters directly after a `;` are neutralised as well (`x;=1+1;y` is exported as `x;'=1+1;y`), because Excel with an Indonesian or other European locale uses `;` as the column separator and would otherwise turn that segment into a formula cell.
 
 - Streamed in batches of 2000 rows (keyset pagination), so large exports never load fully into memory. If the database fails mid-export the connection is aborted (a truncated download never looks like a complete file). Every export is written to `audit_logs` with the row count.
 
@@ -467,17 +476,18 @@ Invalid `limit`/`offset`/`sessionId` return 400. Per-item errors in `/sync/batch
 
 ```bash
 BASE=https://be-kogo.taro.web.id/api
+uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())'; }
 
 curl -s $BASE/health
 curl -s -o /dev/null -w '%{http_code}\n' $BASE/health/ready
 
-# Device registration (save deviceSecret!) + sync
+# Device registration (save deviceSecret!) + sync. Use fresh UUIDs: a known deviceUuid needs its deviceSecret (409).
 curl -s -X POST $BASE/v2/devices/register -H 'Content-Type: application/json' \
-  -d '{"deviceUuid":"3f1c9a2e-5b7d-4c8e-9f0a-1b2c3d4e5f60","platform":"android","appVersion":"2.0.0"}' > reg.json
+  -d "{\"deviceUuid\":\"$(uuid)\",\"platform\":\"android\",\"appVersion\":\"2.0.0\"}" > reg.json
 DEVICE_TOKEN=$(python3 -c 'import json;print(json.load(open("reg.json"))["data"]["deviceToken"])')
 DEVICE_ID=$(python3 -c 'import json,base64;t=json.load(open("reg.json"))["data"]["deviceToken"].split(".")[1];print(json.loads(base64.urlsafe_b64decode(t+"=="))["deviceId"])')
 curl -s -X POST $BASE/v2/sync -H "Authorization: Bearer $DEVICE_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"learners":[{"clientUuid":"0b1c2d3e-4f50-4617-8899-aabbccddeeff","name":"Ani","school":"TK Pelita","age":5,"createdAt":"2026-10-25T01:00:00.000Z","updatedAt":"2026-10-25T01:00:00.000Z"}]}'
+  -d "{\"learners\":[{\"clientUuid\":\"$(uuid)\",\"name\":\"Ani\",\"school\":\"TK Pelita\",\"age\":5,\"createdAt\":\"2026-10-25T01:00:00.000Z\",\"updatedAt\":\"2026-10-25T01:00:00.000Z\"}]}"
 
 # Researcher
 ACCESS=$(curl -s -X POST $BASE/auth/login -H 'Content-Type: application/json' \
@@ -505,9 +515,11 @@ Security review follow-up:
 - Voice proxy: staff accounts or approved devices only (no child accounts), per-IP limit before auth, daily character/second budgets in PostgreSQL, settings snapped to a coarse grid, size-capped cache.
 - Account status and role are re-read from the database on every authenticated request.
 - No public registration endpoints (account enumeration removed).
-- Sync: owning-device learner updates always apply; completed session results are final; future timestamps rejected per item; duplicates counted once; NUL characters rejected per item (and SQLSTATE 22021/22P05 map to 400).
-- Metrics: empty query values are ignored; new `errorRatePerAttempt`, `deviceFilter`, `devices`.
-- CSV exports are streamed.
+- Sync: owning-device learner updates always apply; completed session results are final; duplicates counted once; NUL characters rejected per item (and SQLSTATE 22021/22P05 map to 400).
+- Sync timestamps: values before 2000-01-01 or more than `SYNC_MAX_CLOCK_SKEW_HOURS` in the future are clamped to the server time instead of being rejected (a wrong tablet clock no longer makes the app drop data permanently); values with a UTC offset beyond +/-15:59 are rejected per item as `INVALID` instead of failing the whole request.
+- Sync quota: a pending device may store at most `PENDING_DEVICE_MAX_ITEMS` (default 20000) sessions + attempts; beyond it the request returns 403 `DEVICE_PENDING_QUOTA` and the app retries after approval.
+- Metrics: empty query values are ignored; a datetime `from` can be combined with a date-only `to` (whole day, inclusive); new `errorRatePerAttempt` (supplementary per-attempt diagnostic, not the Table 3.1 metric), `deviceFilter`, `devices`.
+- CSV exports are streamed; the formula-injection guard also covers segments after `;`.
 - `TRUST_PROXY` defaults to private-network peers only; publicly known JWT secrets are ignored in every environment.
 
 Initial 2.0 changes:

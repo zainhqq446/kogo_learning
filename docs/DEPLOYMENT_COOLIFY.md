@@ -109,13 +109,14 @@ Full list with comments: [`backend/.env.example`](../backend/.env.example). With
 | `BCRYPT_SALT_ROUNDS` | no | `10` | bcrypt cost |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | recommended | empty | Admin account created/updated on every start (password >= 12 chars) |
 | `DEVICE_ENROLLMENT_KEY` | recommended | empty | If set, new devices must send `X-Enrollment-Key` and are approved automatically. If empty, new devices are `pending` until approved (section 6) |
-| `SYNC_MAX_CLOCK_SKEW_HOURS` | no | `24` | Device timestamps further in the future are rejected per item |
+| `SYNC_MAX_CLOCK_SKEW_HOURS` | no | `24` | Device timestamps further in the future are clamped to the server's current time (the item is still accepted) |
+| `PENDING_DEVICE_MAX_ITEMS` | no | `20000` | Maximum game sessions + answer attempts stored for a device that is still `pending`. Beyond it `POST /api/v2/sync` returns 403 `DEVICE_PENDING_QUOTA` for the whole request; the app keeps the data queued and sends it after approval. Approved devices have no limit |
 | `NODE_ENV` | no | `production` | Keep `production` (stack traces only with `development`) |
 | `HOST` / `PORT` | no | `0.0.0.0` / `4000` | Bind address / container port |
 | `APP_VERSION` | no | `2.0.0` | Reported by `/api/health` |
 | `TRUST_PROXY` | no | `loopback, linklocal, uniquelocal` | Peers allowed to set `X-Forwarded-For` (Traefik on the Docker network). See section 5 for Cloudflare |
 | `CORS_ORIGIN` | no | empty (disabled) | Comma-separated browser origins, only needed for a web dashboard |
-| `RUN_MIGRATIONS_ON_START` | no | `true` | Migrations + reference seed + admin bootstrap at start (advisory-locked) |
+| `RUN_MIGRATIONS_ON_START` | no | `true` | Migrations + reference seed + admin bootstrap at start (advisory-locked). Keep `true` (section 10) |
 | `DB_WAIT_SECONDS` | no | `60` | Wait for the database on start |
 | `RATE_LIMIT_ENABLED` | no | `true` | Rate limiting switch |
 | `RATE_LIMIT_AUTH_MAX` | no | `10` | Login/register attempts per 15 min per IP |
@@ -147,7 +148,8 @@ Full list with comments: [`backend/.env.example`](../backend/.env.example). With
 - If the domain is proxied by **Cloudflare** (orange cloud): set SSL/TLS mode to *Full (strict)* and append Cloudflare's ranges (https://www.cloudflare.com/ips/) to `TRUST_PROXY`, e.g. `loopback, linklocal, uniquelocal, 173.245.48.0/20, 103.21.244.0/22, ...`. Otherwise every user is identified by a Cloudflare edge IP in the rate limiter.
 - Liveness: `GET /api/health` (Docker `HEALTHCHECK` every 30 s, 60 s start period). It never touches the database, so a database outage does not restart the API in a loop.
 - Readiness: `GET /api/health/ready` returns 503 while PostgreSQL is unreachable. Use it for uptime monitoring (e.g. Coolify notifications, UptimeRobot).
-- The server sets keep-alive timeouts above Traefik's to avoid sporadic 502s, and handles `SIGTERM` gracefully (Node is PID 1 via `exec`).
+- Keep-alive: Node keeps idle connections open for 95 s (`keepAliveTimeout`, with `headersTimeout` 96 s), longer than Traefik's 90 s idle timeout for upstream connections. Traefik therefore always closes an idle connection first and never sends a request on a connection Node has just closed, which would show up as a sporadic 502.
+- The server handles `SIGTERM` gracefully (Node is PID 1 via `exec`).
 
 ---
 
@@ -172,7 +174,7 @@ curl -s -X POST $BASE/auth/register -H "Authorization: Bearer $ACCESS" -H 'Conte
 
 The environment is the source of truth for the admin: changing `ADMIN_PASSWORD` and redeploying rotates the password and re-activates the account. Deactivating a user (`UPDATE users SET is_active = false ...`) takes effect on the next request, not only after the token expires.
 
-4. **Approve the field-test tablet(s).** Anyone on the internet can call `POST /api/v2/devices/register`, so data from new devices is quarantined: it is stored, but metrics and exports only include **approved** devices, and only approved devices may use the paid voice proxy. After the tablet's first sync:
+4. **Approve the field-test tablet(s).** Anyone on the internet can call `POST /api/v2/devices/register`, so data from new devices is quarantined: it is stored (up to `PENDING_DEVICE_MAX_ITEMS`, default 20000 sessions + attempts per device), but metrics and exports only include **approved** devices, and only approved devices may use the paid voice proxy. After the tablet's first sync:
 
 ```bash
 curl -s $BASE/v2/research/devices -H "Authorization: Bearer $ACCESS"
@@ -181,7 +183,7 @@ curl -s -X POST $BASE/v2/research/devices/<id>/approve -H "Authorization: Bearer
   -H 'Content-Type: application/json' -d '{"label":"Tablet TK Pelita"}'
 ```
 
-   Use `?devices=all` on the metrics/exports to look at pending data before approving, and `POST .../revoke` to exclude a device and block its tokens. Alternatively set `DEVICE_ENROLLMENT_KEY` and ship field-test builds that send it as the `X-Enrollment-Key` header (e.g. `--dart-define`): such devices are approved automatically and unknown devices cannot register at all.
+   Use `?devices=all` on the metrics/exports to look at pending data before approving, and `POST .../revoke` to exclude a device and block its tokens. A pending device whose sync request would take it above `PENDING_DEVICE_MAX_ITEMS` stored sessions + attempts gets 403 `DEVICE_PENDING_QUOTA` for that request (the app sends up to 200 sessions and 500 attempts per request, so uploads can stop a few hundred items before the limit); its data stays queued on the tablet and is sent after approval. Alternatively set `DEVICE_ENROLLMENT_KEY` and build the field-test APK with `--dart-define=KOGO_ENROLLMENT_KEY=<same value>`, so the app sends it as the `X-Enrollment-Key` header: such devices are approved automatically and unknown devices cannot register at all. The key only applies to new registrations; a tablet that already registered as `pending` still has to be approved.
 
 5. If a tablet loses its `deviceSecret` (for example after `JWT_SECRET` was rotated and the app did not store the secret), re-registration returns 409 `DEVICE_PROOF_REQUIRED`. Run `POST /api/v2/research/devices/<id>/reset-credential`; the next registration of that tablet then succeeds and receives a new secret.
 
@@ -191,20 +193,22 @@ curl -s -X POST $BASE/v2/research/devices/<id>/approve -H "Authorization: Bearer
 
 ```bash
 BASE=https://be-kogo.taro.web.id/api
+# Random UUID v4 on Linux, macOS (uuidgen) or anywhere with Python 3.
+uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())'; }
 
 # 1. Liveness and readiness
 curl -s $BASE/health
 curl -s -w '\n%{http_code}\n' $BASE/health/ready          # expect 200 and "database":"up"
 
 # 2. Register a test device (fresh random UUID). Keep reg.json: it holds the one-time deviceSecret.
-DEV=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+DEV=$(uuid)
 curl -s -X POST $BASE/v2/devices/register -H 'Content-Type: application/json' \
   -d "{\"deviceUuid\":\"$DEV\",\"platform\":\"android\",\"appVersion\":\"smoke-test\"}" > reg.json
 DEVICE_TOKEN=$(python3 -c 'import json;print(json.load(open("reg.json"))["data"]["deviceToken"])')
 DEVICE_ID=$(python3 -c 'import json,base64;t=json.load(open("reg.json"))["data"]["deviceToken"].split(".")[1];print(json.loads(base64.urlsafe_b64decode(t+"=="))["deviceId"])')
 
 # 3. Sync one learner, one session, one attempt (run twice: same counts, no duplicates)
-L=$(uuidgen); S=$(uuidgen); A=$(uuidgen); NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+L=$(uuid); S=$(uuid); A=$(uuid); NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 curl -s -X POST $BASE/v2/sync -H "Authorization: Bearer $DEVICE_TOKEN" -H 'Content-Type: application/json' -d "{
   \"learners\":[{\"clientUuid\":\"$L\",\"name\":\"Uji Coba\",\"school\":\"TK Uji\",\"age\":5,\"createdAt\":\"$NOW\",\"updatedAt\":\"$NOW\"}],
   \"sessions\":[{\"clientUuid\":\"$S\",\"learnerUuid\":\"$L\",\"materi\":\"two-syllable\",\"nodeIndex\":0,\"gameType\":\"speaking\",\"status\":\"completed\",\"totalItems\":4,\"firstTryCorrect\":3,\"stars\":2,\"startedAt\":\"$NOW\",\"endedAt\":\"$NOW\"}],
@@ -241,20 +245,52 @@ The `learners` table and both CSV exports contain children's names and schools. 
 
 ## 9. Backups and restore
 
-**Option A (database inside the compose stack)** - run on the Coolify host, e.g. from cron:
+**Option A (database inside the compose stack)** - run on the Coolify host.
+
+Coolify names containers `<service>-<resource UUID>-<timestamp>` and the name changes with every deploy, so do not search for the container by name. Find it by its Docker Compose labels instead: Coolify uses the resource UUID (shown in the resource's URL in the Coolify dashboard and in the container names) as the Compose project name. To check the value, list the `db` containers with their project label:
 
 ```bash
-DB=$(docker ps --format '{{.Names}}' | grep -E 'db-' | grep -i kogo | head -1)   # or copy the name from Coolify
-docker exec "$DB" pg_dump -U kogo -d kogo_research -Fc > /root/backups/kogo_$(date +%F).dump
+docker ps --filter label=com.docker.compose.service=db --format '{{.Label "com.docker.compose.project"}}  {{.Names}}'
 ```
 
-Restore into an empty database (objects are recreated with `kogo_app` as owner):
+Save the backup as a script, e.g. `/root/kogo-backup.sh` (`chmod 700`), and run it from cron (`15 2 * * * /root/kogo-backup.sh >> /var/log/kogo-backup.log 2>&1`). It fails loudly when the container is not found or the dump is empty, and only replaces a backup file with a complete, non-empty dump:
 
 ```bash
-docker exec -i "$DB" pg_restore -U kogo -d kogo_research --clean --if-exists --no-owner --role=kogo_app < /root/backups/kogo_2026-10-25.dump
+#!/usr/bin/env bash
+set -euo pipefail
+APP_UUID=<Coolify resource UUID>
+BACKUP_DIR=/root/backups
+DB=$(docker ps -q --filter "label=com.docker.compose.project=$APP_UUID" --filter label=com.docker.compose.service=db)
+[ -n "$DB" ] || { echo "kogo db container not found" >&2; exit 1; }
+mkdir -p "$BACKUP_DIR"
+OUT="$BACKUP_DIR/kogo_$(date +%F).dump"
+trap 'rm -f "$OUT.tmp"' EXIT
+# -U / -d: defaults of POSTGRES_USER / POSTGRES_DB in docker-compose.yml (adjust if you changed them).
+docker exec "$DB" pg_dump -U kogo -d kogo_research -Fc > "$OUT.tmp"
+[ -s "$OUT.tmp" ] || { echo "kogo backup is empty: $OUT.tmp" >&2; exit 1; }
+mv "$OUT.tmp" "$OUT"
+echo "kogo backup written: $OUT"
 ```
 
-Copy the dumps off the server (S3, another machine). A raw copy of the `kogo_pg_data` volume is only consistent when the `db` container is stopped.
+Restore (drops and recreates the tables, with `kogo_app` as owner). Save it as `/root/kogo-restore.sh` and run `bash /root/kogo-restore.sh /root/backups/kogo_2026-10-25.dump` (as a script, so that `set -e` and `exit` do not close your shell). It uses the same lookup, refuses a missing or empty dump file, and stops the `api` container while the tables are recreated:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+APP_UUID=<Coolify resource UUID>
+DUMP=${1:?usage: kogo-restore.sh <dump file>}
+DB=$(docker ps -q --filter "label=com.docker.compose.project=$APP_UUID" --filter label=com.docker.compose.service=db)
+[ -n "$DB" ] || { echo "kogo db container not found" >&2; exit 1; }
+API=$(docker ps -q --filter "label=com.docker.compose.project=$APP_UUID" --filter label=com.docker.compose.service=api)
+[ -s "$DUMP" ] || { echo "dump file missing or empty: $DUMP" >&2; exit 1; }
+[ -z "$API" ] || docker stop "$API"
+docker exec -i "$DB" pg_restore -U kogo -d kogo_research --clean --if-exists --no-owner --role=kogo_app < "$DUMP"
+[ -z "$API" ] || docker start "$API"
+```
+
+If `pg_restore` fails, the script stops and leaves `api` stopped; fix the problem and run `docker start` for the `api` container (or redeploy) yourself.
+
+Copy the dumps off the server (S3, another machine) and test a restore once before the field study. A raw copy of the `kogo_pg_data` volume is only consistent when the `db` container is stopped.
 
 **Option B (Coolify PostgreSQL resource)** - enable *Backups* on the database resource (cron schedule + S3 storage) and test a restore once before the field study.
 
@@ -267,7 +303,9 @@ Also export the CSVs after each field-test day as an extra, human-readable copy.
 - Push to the deployed branch and click **Redeploy** (or enable auto-deploy via webhook).
 - Migrations in `backend/migrations/*.sql` run automatically before the server starts, inside a PostgreSQL advisory lock (safe with overlapping old/new containers during a rolling deploy). Applied files are recorded in `schema_migrations`; never edit an applied migration, add a new numbered file instead.
 - Reference data (`materi`, `word_types`, `words`, `reward_tiers`) is re-seeded idempotently from `src/data/vocabulary.json` on every start.
-- To run migrations manually: `docker compose run --rm api node dist/scripts/migrate.js` (or set `RUN_MIGRATIONS_ON_START=false` and run it as a Coolify "pre-deployment command").
+- Keep `RUN_MIGRATIONS_ON_START=true` (the default). The new container then migrates the database before it starts serving requests. Do not move migrations to a Coolify *pre-deployment* command: it runs in the old, still running container (so it applies the old code's migrations) and it is skipped on the first deploy, when no container exists yet.
+- If you set `RUN_MIGRATIONS_ON_START=false`, run `node dist/scripts/migrate.js` in the **new** container after every deploy, e.g. as Coolify's *post-deployment* command (with the compose build pack, for the `api` container). Note that the flag also disables the reference data seed and the admin bootstrap (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), because both run in the same startup task as the migrations, and that the new container already serves requests against the old schema until the post-deployment command has finished.
+- To run the startup task by hand (idempotent, advisory-locked): locally `docker compose run --rm api node dist/scripts/migrate.js`; on the Coolify host `docker exec "$(docker ps -q --filter "label=com.docker.compose.project=$APP_UUID" --filter label=com.docker.compose.service=api)" node dist/scripts/migrate.js` (`APP_UUID` as in section 9).
 
 ---
 
@@ -308,13 +346,26 @@ How spend is bounded:
 | Voice endpoints return 400 `VOICE_NOT_ALLOWED` | The app asked for a voice not in `ELEVENLABS_ALLOWED_VOICE_IDS`. |
 | `EACCES` writing `/app/data/tts-cache` | Volume created with root ownership: `docker run --rm -v <volume>:/data alpine chown -R 1000:1000 /data`. The cache is optional; the API keeps working without it. |
 | Sync returns `FOREIGN_DEVICE` | The UUID was first synced by another device (e.g. a restored backup on a second tablet). Data is not overwritten by design. |
-| Sync rejects items with `INVALID` and "too far in the future" | The tablet clock is more than `SYNC_MAX_CLOCK_SKEW_HOURS` ahead. Fix the tablet's date/time (automatic network time). |
+| Sync returns 403 `DEVICE_PENDING_QUOTA` | The tablet is still `pending` and the request would take its stored sessions + attempts above `PENDING_DEVICE_MAX_ITEMS`. Approve it (section 6); the app keeps the data queued and sends it on the next sync. Nothing is lost. |
+| Data from a tablet is dated at the sync time instead of when it was played | The tablet clock was more than `SYNC_MAX_CLOCK_SKEW_HOURS` ahead, so the server clamped those timestamps to its own time and accepted the items (they are not rejected). Already accepted items keep the clamped time. Turn on automatic date & time on the tablet so that new data carries the correct time. |
+| Sync rejects items with `INVALID` and a timestamp field named in `detail` (e.g. `createdAt: ...`) | The timestamp uses a UTC offset beyond +/-15:59, which the app never sends (it always sends UTC). Check which client produced the item. A wrong tablet clock (reset to 1970, or running ahead) does not cause this: such timestamps are clamped to the server time and accepted. |
 | Sync returns 401 `DEVICE_NOT_REGISTERED` | The database was reset; the app must call `/v2/devices/register` again. |
 | Image build hits Docker Hub `429 Too Many Requests` | Log Coolify's server in to Docker Hub or retry later; the build only needs `node:22-alpine` and `postgres:16-alpine`. |
 
 ---
 
-## 13. Local development and tests
+## 13. Field test checklist
+
+1. **Server ready.** `GET /api/health/ready` returns 200, the admin can log in (section 6), the smoke test passed (section 7) and the nightly backup runs (section 9).
+2. **APK.** The release APK talks to `https://be-kogo.taro.web.id/api` by default. For another server, build with `--dart-define=KOGO_BACKEND_URL=https://<host>/api` or change the API address on the tablet in Research mode (*Mode Peneliti*, section *Sinkronisasi Server*). Changing the address makes the app send all local data again to the new server (accepted idempotently).
+3. **Device approval.** After its first sync each tablet appears as `pending` in `GET /api/v2/research/devices`: approve it and give it a label (section 6). Alternatively set `DEVICE_ENROLLMENT_KEY` on the server and build the APK with `--dart-define=KOGO_ENROLLMENT_KEY=<same value>`; tablets that register with the key are approved automatically. Approve tablets before the field day: a pending tablet stops uploading once a request would exceed `PENDING_DEVICE_MAX_ITEMS` (403 `DEVICE_PENDING_QUOTA`; the data stays queued on the tablet and is sent after approval).
+4. **Match tablets to device IDs.** Research mode shows the first 8 characters of the server's device ID and the approval status (approved or waiting for approval). Compare the prefix with `deviceId` in the device list before approving; tap *Sinkronkan Sekarang* to refresh the status after approval.
+5. **Clock.** Turn on automatic date & time on every tablet. Timestamps before 2000-01-01 or more than `SYNC_MAX_CLOCK_SKEW_HOURS` in the future are clamped to the sync time, so the data is kept but its date in metrics becomes the sync date.
+6. **End of each day.** Sync every tablet until Research mode shows no unsent data, check that `devices.pending` is 0 in `GET /api/v2/research/metrics`, and export both CSVs as an extra copy (section 8 for handling them).
+
+---
+
+## 14. Local development and tests
 
 ```bash
 cd backend
@@ -327,9 +378,12 @@ TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/kogo_research_test
 npx tsc --noEmit
 
 # Full stack in Docker (same as Coolify)
+ADMIN_PASSWORD=$(openssl rand -hex 12); echo "kogo_admin password: $ADMIN_PASSWORD"   # note it: needed to log in
 POSTGRES_PASSWORD=$(openssl rand -hex 24) APP_DB_PASSWORD=$(openssl rand -hex 24) JWT_SECRET=$(openssl rand -hex 48) \
-  ADMIN_USERNAME=kogo_admin ADMIN_PASSWORD=dev-admin-password docker compose up -d --build
+  ADMIN_USERNAME=kogo_admin ADMIN_PASSWORD=$ADMIN_PASSWORD docker compose up -d --build
 docker compose down -v          # stop and delete local volumes
 ```
+
+Note the printed admin password: you need it to log in as `kogo_admin`. The database passwords are only applied when the `kogo_pg_data` volume is first created, so run `docker compose down -v` before starting the stack again with new random values.
 
 Without `NODE_ENV=development` the server runs in production mode and refuses to start without a real `JWT_SECRET`. The integration suite refuses to run unless the database name contains `test` (it truncates tables and recreates the `public` schema).

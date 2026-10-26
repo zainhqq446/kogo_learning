@@ -8,4 +8,4 @@ The current, tested deployment is documented in:
 - **[API_DOCUMENTATION.md](./API_DOCUMENTATION.md)** - API reference (v2 device registration and sync, researcher metrics and CSV exports, voice proxy, auth).
 - [`backend/.env.example`](../backend/.env.example) - every environment variable with comments.
 
-Flutter app configuration: point the app's backend base URL to `https://be-kogo.taro.web.id/api` (for example via `--dart-define`), never to a LAN IP in release builds, and never embed the ElevenLabs API key in the APK (use the backend voice proxy).
+Flutter app configuration: the APK's default backend base URL is `https://be-kogo.taro.web.id/api`; override it with `--dart-define=KOGO_BACKEND_URL=https://<host>/api` or on the tablet in Research mode, never point release builds at a LAN IP, and never embed the ElevenLabs API key in the APK (use the backend voice proxy). See the field test checklist in [DEPLOYMENT_COOLIFY.md](./DEPLOYMENT_COOLIFY.md) for device approval and `KOGO_ENROLLMENT_KEY`.
