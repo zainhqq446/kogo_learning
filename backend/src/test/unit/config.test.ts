@@ -73,6 +73,7 @@ test('config: device enrollment key, sync clock skew and voice budgets', () => {
   const cfg = loadConfig({ NODE_ENV: 'production', JWT_SECRET: STRONG_SECRET });
   assert.equal(cfg.devices.enrollmentKey, undefined);
   assert.equal(cfg.devices.maxClockSkewMs, 24 * 60 * 60 * 1000);
+  assert.equal(cfg.devices.pendingMaxItems, 20000);
   assert.ok(cfg.warnings.some((w) => w.includes('DEVICE_ENROLLMENT_KEY')), 'pending-approval mode is announced');
   assert.equal(cfg.elevenlabs.dailyTtsCharBudget, 20000);
   assert.equal(cfg.elevenlabs.dailySttSecondsBudget, 1800);
@@ -82,6 +83,14 @@ test('config: device enrollment key, sync clock skew and voice budgets', () => {
   const enrolled = loadConfig({ NODE_ENV: 'test', DEVICE_ENROLLMENT_KEY: 'field-test-2026-key', SYNC_MAX_CLOCK_SKEW_HOURS: '2' });
   assert.equal(enrolled.devices.enrollmentKey, 'field-test-2026-key');
   assert.equal(enrolled.devices.maxClockSkewMs, 2 * 60 * 60 * 1000);
+  assert.equal(loadConfig({ NODE_ENV: 'test', PENDING_DEVICE_MAX_ITEMS: '500' }).devices.pendingMaxItems, 500);
+  assert.equal(loadConfig({ NODE_ENV: 'test', PENDING_DEVICE_MAX_ITEMS: '0' }).devices.pendingMaxItems, 0);
+  for (const bad of ['-1', 'abc', '1.5', '10000001']) {
+    assert.ok(
+      issuesOf(() => loadConfig({ NODE_ENV: 'test', PENDING_DEVICE_MAX_ITEMS: bad })).some((i) => i.includes('PENDING_DEVICE_MAX_ITEMS')),
+      `PENDING_DEVICE_MAX_ITEMS=${bad} must be rejected`
+    );
+  }
   assert.ok(issuesOf(() => loadConfig({ NODE_ENV: 'test', DEVICE_ENROLLMENT_KEY: 'short' })).some((i) => i.includes('16')));
   assert.equal(loadConfig({ NODE_ENV: 'test', ELEVENLABS_DAILY_CHAR_BUDGET: '0' }).elevenlabs.dailyTtsCharBudget, 0);
   assert.throws(() => loadConfig({ NODE_ENV: 'test', ELEVENLABS_DAILY_STT_SECONDS_BUDGET: '-1' }), ConfigError);

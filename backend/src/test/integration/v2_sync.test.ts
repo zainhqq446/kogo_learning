@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../../app.js';
 import { setDbPool } from '../../config/database.js';
+import { config } from '../../config/env.js';
 import { createTestPool, prepareTestDatabase } from '../helpers/db.js';
 import { bearer, deviceToken, noRateLimits, postJson, startServer, TestServer, userToken } from '../helpers/http.js';
 
@@ -266,14 +267,17 @@ test('API v2 device registration and sync (real PostgreSQL)', async (t) => {
     row = await pool.query('SELECT name, school, age FROM learners WHERE client_uuid = $1', [L1]);
     assert.deepEqual(row.rows[0], { name: 'Ani Putri', school: 'TK B', age: 6 });
 
-    // Timestamp jauh di masa depan ditolak per item (tidak bisa "mengunci" data).
-    const future = await syncA({ learners: [learner(L1, { name: 'Masa Depan', updatedAt: '2099-01-01T00:00:00.000Z' })] });
+    // Timestamp jauh di masa depan (jam tablet salah) diterima dan dipangkas ke
+    // waktu server: aplikasi tidak boleh membuang learner beserta sesinya.
+    const before = Date.now();
+    const future = await syncA({ learners: [learner(L1, { name: 'Ani Putri', school: 'TK Pelita', age: 6, updatedAt: '2099-01-01T00:00:00.000Z' })] });
     assert.equal(future.status, 200);
-    assert.deepEqual(future.body.data.accepted.learners, 0);
-    assert.equal(future.body.data.rejected[0].code, 'INVALID');
-    assert.match(future.body.data.rejected[0].detail, /future/);
-    row = await pool.query('SELECT name FROM learners WHERE client_uuid = $1', [L1]);
+    assert.deepEqual(future.body.data, { accepted: { learners: 1, sessions: 0, attempts: 0 }, rejected: [] });
+    row = await pool.query('SELECT name, school, updated_at FROM learners WHERE client_uuid = $1', [L1]);
     assert.equal(row.rows[0].name, 'Ani Putri');
+    assert.equal(row.rows[0].school, 'TK Pelita');
+    const storedMs = new Date(row.rows[0].updated_at).getTime();
+    assert.ok(storedMs >= before - 1000 && storedMs <= Date.now() + 1000, `updated_at clamped to ~now, got ${row.rows[0].updated_at}`);
   });
 
   await t.test("another device can never overwrite or attach to device A's data (FOREIGN_DEVICE)", async () => {
@@ -414,6 +418,83 @@ test('API v2 device registration and sync (real PostgreSQL)', async (t) => {
     assert.equal(n.rows[0].n, 1);
   });
 
+  await t.test('far-future session/attempt timestamps are clamped to server time instead of stranding children', async () => {
+    const LF = randomUUID();
+    const SF = randomUUID();
+    const AF = randomUUID();
+    const before = Date.now();
+    const res = await syncA({
+      learners: [learner(LF, { name: 'Fajar', createdAt: '2099-01-01T00:00:00.000Z', updatedAt: '2099-01-01T00:00:00.000Z' })],
+      sessions: [session(SF, LF, { startedAt: '2099-01-01T00:00:00.000Z', endedAt: '2099-01-01T00:05:00+07:00' })],
+      attempts: [attempt(AF, SF, LF, { createdAt: '2098-05-05T05:05:05.000Z' })],
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.data, { accepted: { learners: 1, sessions: 1, attempts: 1 }, rejected: [] });
+
+    const near = (value: Date | string, label: string) => {
+      const ms = new Date(value).getTime();
+      assert.ok(ms >= before - 1000 && ms <= Date.now() + 1000, `${label} clamped to ~now, got ${value}`);
+    };
+    const l = await pool.query('SELECT created_at, updated_at FROM learners WHERE client_uuid = $1', [LF]);
+    near(l.rows[0].created_at, 'learner.created_at');
+    near(l.rows[0].updated_at, 'learner.updated_at');
+    const s = await pool.query('SELECT started_at, ended_at FROM game_sessions WHERE client_uuid = $1', [SF]);
+    near(s.rows[0].started_at, 'session.started_at');
+    near(s.rows[0].ended_at, 'session.ended_at');
+    const a = await pool.query('SELECT created_at FROM answer_attempts WHERE client_uuid = $1', [AF]);
+    near(a.rows[0].created_at, 'attempt.created_at');
+  });
+
+  await t.test('unstorable offsets are INVALID per item; reset device clocks (year 0000, 1999) are clamped', async () => {
+    const good = randomUUID();
+    const badOffset = randomUUID();
+    const year0 = randomUUID();
+    const old = randomUUID();
+    const SG = randomUUID();
+    const badSession = randomUUID();
+    const badAttempt = randomUUID();
+    const goodAttempt = randomUUID();
+    const res = await syncA({
+      learners: [
+        learner(good, { name: 'Gita', createdAt: '2026-10-20T08:00:00+15:59' }),
+        learner(badOffset, { name: 'Hadi', createdAt: '2026-10-20T08:00:00+16:00' }),
+        learner(year0, { name: 'Indah', updatedAt: '0000-01-01T00:00:00Z' }),
+        learner(old, { name: 'Joko', createdAt: '1999-12-31T23:59:59Z' }),
+      ],
+      sessions: [
+        session(SG, good),
+        session(badSession, good, { startedAt: '2026-10-20T08:00:00-23:00' }),
+      ],
+      attempts: [
+        attempt(goodAttempt, SG, good),
+        attempt(badAttempt, SG, good, { createdAt: '2026-10-20T08:00:00+18:30' }),
+      ],
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.data.accepted, { learners: 3, sessions: 1, attempts: 1 });
+    const rejected = res.body.data.rejected as Array<{ type: string; clientUuid: string; code: string; detail: string }>;
+    assert.deepEqual(
+      rejected.map((r) => [r.type, r.clientUuid, r.code]),
+      [
+        ['learner', badOffset, 'INVALID'],
+        ['session', badSession, 'INVALID'],
+        ['attempt', badAttempt, 'INVALID'],
+      ]
+    );
+    assert.match(rejected[0].detail, /^createdAt: .*offset/);
+    assert.match(rejected[1].detail, /^startedAt: .*offset/);
+    const stored = await pool.query(
+      'SELECT client_uuid, created_at, updated_at FROM learners WHERE client_uuid = ANY($1::uuid[]) ORDER BY name',
+      [[good, badOffset, year0, old]]
+    );
+    assert.deepEqual(stored.rows.map((r) => r.client_uuid).sort(), [good, year0, old].sort());
+    // Jam yang ter-reset tidak pernah tersimpan sebagai tahun 0000/1999.
+    for (const row of stored.rows) {
+      assert.ok(new Date(row.created_at).getUTCFullYear() >= 2000, `created_at ${row.created_at}`);
+      assert.ok(new Date(row.updated_at).getUTCFullYear() >= 2000, `updated_at ${row.updated_at}`);
+    }
+  });
+
   await t.test('NUL characters are rejected per item instead of rolling back the whole batch', async () => {
     const good = randomUUID();
     const bad = randomUUID();
@@ -444,5 +525,86 @@ test('API v2 device registration and sync (real PostgreSQL)', async (t) => {
     const row = await pool.query('SELECT approved_at FROM app_devices WHERE id = $1', [deviceIdA]);
     assert.equal(row.rows[0].approved_at, null);
     assert.ok((await count(pool, 'learners')) > 0);
+  });
+
+  await t.test('pending devices have a storage quota (403 DEVICE_PENDING_QUOTA, no partial writes); approved devices do not', async () => {
+    const previousLimit = config.devices.pendingMaxItems;
+    config.devices.pendingMaxItems = 5;
+    try {
+      const reg = await postJson(base, '/api/v2/devices/register', { deviceUuid: randomUUID(), platform: 'android', appVersion: '2.0.0' });
+      assert.equal(reg.status, 201);
+      assert.equal(reg.body.data.approved, false);
+      const tokenC = reg.body.data.deviceToken as string;
+      const deviceIdC = (jwt.decode(tokenC) as jwt.JwtPayload).deviceId as string;
+      const syncC = (body: unknown) => postJson(base, '/api/v2/sync', body, bearer(tokenC));
+      const deviceItems = async () => {
+        const res = await pool.query<{ n: number }>(
+          `SELECT (SELECT COUNT(*) FROM game_sessions WHERE device_id = $1)::int
+                + (SELECT COUNT(*) FROM answer_attempts aa JOIN game_sessions gs ON gs.id = aa.session_id WHERE gs.device_id = $1)::int AS n`,
+          [deviceIdC]
+        );
+        return res.rows[0].n;
+      };
+
+      const LC = randomUUID();
+      const SC1 = randomUUID();
+      const SC2 = randomUUID();
+      const firstPayload = {
+        learners: [learner(LC, { name: 'Kiki' })],
+        sessions: [session(SC1, LC), session(SC2, LC, { nodeIndex: 1 })],
+        attempts: [attempt(randomUUID(), SC1, LC), attempt(randomUUID(), SC2, LC)],
+      };
+      // 4 item (2 sesi + 2 percobaan) <= 5: diterima.
+      const first = await syncC(firstPayload);
+      assert.equal(first.status, 200);
+      assert.deepEqual(first.body.data.accepted, { learners: 1, sessions: 2, attempts: 2 });
+      assert.equal(await deviceItems(), 4);
+
+      // Kiriman ulang item yang sudah tersimpan tidak menambah data dan tidak dihitung.
+      const resend = await syncC(firstPayload);
+      assert.equal(resend.status, 200);
+      assert.deepEqual(resend.body.data.accepted, { learners: 1, sessions: 2, attempts: 2 });
+
+      // 4 tersimpan + 2 baru = 6 > 5: seluruh request ditolak, termasuk learner baru.
+      const LX = randomUUID();
+      const SX = randomUUID();
+      const learnersBefore = await count(pool, 'learners');
+      const over = await syncC({
+        learners: [learner(LX, { name: 'Lala' })],
+        sessions: [session(SX, LC, { nodeIndex: 2 })],
+        attempts: [attempt(randomUUID(), SX, LC)],
+      });
+      assert.equal(over.status, 403);
+      assert.equal(over.body.status, 'error');
+      assert.equal(over.body.statusCode, 403);
+      assert.equal(over.body.code, 'DEVICE_PENDING_QUOTA');
+      assert.match(over.body.message, /approve/i);
+      assert.equal(await deviceItems(), 4, 'no partial writes');
+      assert.equal(await count(pool, 'learners'), learnersBefore);
+      const lx = await pool.query('SELECT 1 FROM learners WHERE client_uuid = $1', [LX]);
+      assert.equal(lx.rowCount, 0);
+
+      // Tepat mencapai batas (4 + 1 = 5) masih diterima.
+      const exact = await syncC({ sessions: [session(SX, LC, { nodeIndex: 2 })] });
+      assert.equal(exact.status, 200);
+      assert.equal(exact.body.data.accepted.sessions, 1);
+      assert.equal(await deviceItems(), 5);
+      const full = await syncC({ attempts: [attempt(randomUUID(), SX, LC)] });
+      assert.equal(full.status, 403);
+      assert.equal(full.body.code, 'DEVICE_PENDING_QUOTA');
+
+      // Setelah disetujui peneliti, batas tidak berlaku lagi.
+      await pool.query('UPDATE app_devices SET approved_at = CURRENT_TIMESTAMP WHERE id = $1', [deviceIdC]);
+      const approved = await syncC({
+        learners: [learner(LX, { name: 'Lala' })],
+        sessions: [session(randomUUID(), LC, { nodeIndex: 3 }), session(randomUUID(), LX)],
+        attempts: [attempt(randomUUID(), SX, LC), attempt(randomUUID(), SX, LC, { attemptNumber: 2 })],
+      });
+      assert.equal(approved.status, 200, JSON.stringify(approved.body));
+      assert.deepEqual(approved.body.data, { accepted: { learners: 1, sessions: 2, attempts: 2 }, rejected: [] });
+      assert.equal(await deviceItems(), 9);
+    } finally {
+      config.devices.pendingMaxItems = previousLimit;
+    }
   });
 });

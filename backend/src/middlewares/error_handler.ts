@@ -89,8 +89,9 @@ export function normalizeError(err: unknown): NormalizedError {
       case '22P02':
       case '22021': // character_not_in_repertoire (mis. NUL / UTF-8 tidak valid)
       case '22P05': // untranslatable_character
-      case '22007':
-      case '22008':
+      case '22007': // invalid_datetime_format
+      case '22008': // datetime_field_overflow (mis. tahun 0000)
+      case '22009': // invalid_time_zone_displacement_value (offset di luar +/-15:59)
       case '22003':
       case '22001':
         return { statusCode: 400, code: 'INVALID_INPUT', message: 'Invalid input value', unexpected: false };

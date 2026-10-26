@@ -27,6 +27,9 @@ test('error mapping: PostgreSQL errors map to stable codes without leaking raw m
     ['22P02', 400, 'INVALID_INPUT'],
     ['22021', 400, 'INVALID_INPUT'],
     ['22P05', 400, 'INVALID_INPUT'],
+    ['22007', 400, 'INVALID_INPUT'],
+    ['22008', 400, 'INVALID_INPUT'], // datetime_field_overflow (tahun 0000)
+    ['22009', 400, 'INVALID_INPUT'], // invalid_time_zone_displacement_value (+16:00)
     ['23514', 400, 'CONSTRAINT_VIOLATION'],
     ['23502', 400, 'CONSTRAINT_VIOLATION'],
     ['42P01', 500, 'INTERNAL_ERROR'],

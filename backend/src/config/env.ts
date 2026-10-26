@@ -94,8 +94,17 @@ export interface DeviceConfig {
    * sampai disetujui peneliti.
    */
   enrollmentKey?: string;
-  /** Toleransi timestamp klien di masa depan (ms) untuk data sinkronisasi. */
+  /**
+   * Toleransi timestamp klien di masa depan (ms) untuk data sinkronisasi.
+   * Timestamp yang melewati batas ini dipangkas ke waktu server (tidak ditolak).
+   */
   maxClockSkewMs: number;
+  /**
+   * Batas jumlah sesi + percobaan yang disimpan untuk satu perangkat yang belum
+   * disetujui (`pending`). Sinkronisasi yang akan melampauinya ditolak utuh
+   * (403 DEVICE_PENDING_QUOTA) sampai peneliti menyetujui perangkat.
+   */
+  pendingMaxItems: number;
 }
 
 export interface RateLimitConfig {
@@ -438,6 +447,14 @@ export function loadConfig(env: Env = process.env): AppConfig {
     24 * 30,
     issues
   );
+  const pendingMaxItems = parseIntInRange(
+    str(env, 'PENDING_DEVICE_MAX_ITEMS'),
+    20_000,
+    'PENDING_DEVICE_MAX_ITEMS',
+    0,
+    10_000_000,
+    issues
+  );
 
   // --- Rate limit ---
   const rateLimit: RateLimitConfig = {
@@ -548,6 +565,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
     devices: {
       enrollmentKey,
       maxClockSkewMs: maxClockSkewHours * 60 * 60 * 1000,
+      pendingMaxItems,
     },
     rateLimit,
     startup,

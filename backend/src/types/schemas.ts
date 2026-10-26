@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { config } from '../config/env.js';
+import { resolveDateBounds } from '../utils/date_range.js';
 import {
   GAME_TYPES,
   LEARNER_MAX_AGE,
@@ -27,14 +28,38 @@ const isoDateTime = (label: string) =>
   z.iso.datetime({ offset: true, error: `${label} must be an ISO 8601 datetime with timezone (e.g. 2026-10-25T08:00:00.000Z)` });
 
 /**
- * Timestamp dari jam perangkat (API v2). Nilai jauh di masa depan (melebihi
- * SYNC_MAX_CLOCK_SKEW_HOURS, default 24 jam) ditolak agar tidak merusak filter
- * tanggal metrik.
+ * Offset UTC yang dapat disimpan PostgreSQL: `Z` atau +/-HH:MM dengan HH <= 15
+ * (offset lebih besar ditolak PostgreSQL dengan SQLSTATE 22009).
+ */
+const PG_SAFE_OFFSET = /(?:Z|[+-](?:0\d|1[0-5]):[0-5]\d)$/;
+/**
+ * Batas bawah timestamp perangkat yang masuk akal. Tablet yang jamnya ter-reset
+ * (mis. ke 1970 setelah baterai habis) mengirim nilai di bawahnya; tahun 0000
+ * bahkan ditolak PostgreSQL (22008).
+ */
+const MIN_CLIENT_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+
+/**
+ * Timestamp dari jam perangkat (API v2).
+ *
+ * - Offset di luar +/-15:59 (tidak dapat disimpan PostgreSQL, 22009) ditolak
+ *   per item (INVALID), tidak pernah menggagalkan seluruh batch. Aplikasi
+ *   selalu mengirim UTC (`Z`), jadi ini hanya mengenai klien lain.
+ * - Nilai yang jelas berasal dari jam tablet yang salah, yaitu sebelum
+ *   2000-01-01 atau lebih dari SYNC_MAX_CLOCK_SKEW_HOURS (default 24 jam) di
+ *   masa depan, DIPANGKAS ke waktu server saat ini, bukan ditolak: jam yang
+ *   salah tidak boleh membuat aplikasi membuang data anak (dan seluruh sesinya)
+ *   secara permanen, dan filter tanggal metrik tetap masuk akal.
  */
 const clientTimestamp = (label: string) =>
-  isoDateTime(label).refine((value) => Date.parse(value) <= Date.now() + config.devices.maxClockSkewMs, {
-    message: `${label} is too far in the future (check the device clock)`,
-  });
+  isoDateTime(label)
+    .refine((value) => PG_SAFE_OFFSET.test(value), {
+      message: `${label} must use a UTC offset between -15:59 and +15:59 (e.g. Z or +07:00)`,
+    })
+    .transform((value) => {
+      const ms = Date.parse(value);
+      return ms < MIN_CLIENT_TIMESTAMP_MS || ms > Date.now() + config.devices.maxClockSkewMs ? new Date().toISOString() : value;
+    });
 
 // ============================================================================
 // AUTH
@@ -282,7 +307,9 @@ export const syncGameSessionSchema = z
   .refine((s) => s.firstTryCorrect <= s.totalItems, {
     message: 'firstTryCorrect must not exceed totalItems',
     path: ['firstTryCorrect'],
-  });
+  })
+  // Setiap timestamp dipangkas terpisah; sesi tidak boleh berakhir sebelum dimulai.
+  .transform((s) => (s.endedAt && Date.parse(s.endedAt) < Date.parse(s.startedAt) ? { ...s, endedAt: s.startedAt } : s));
 
 export const syncAnswerAttemptSchema = z.object({
   clientUuid: uuidField('clientUuid'),
@@ -340,10 +367,17 @@ export const researchQuerySchema = z
      */
     devices: z.preprocess(blankAsUndefined, z.enum(RESEARCH_DEVICE_FILTERS).default('approved')),
   })
-  .refine((q) => !q.from || !q.to || new Date(q.from).getTime() <= new Date(q.to).getTime(), {
-    message: '`from` must be before or equal to `to`',
-    path: ['from'],
-  });
+  .refine(
+    (q) => {
+      // Batas yang sama persis dengan resolveRange() (tanggal saja pada `to` = seluruh hari, inklusif).
+      const { from, toExclusive } = resolveDateBounds(q.from, q.to);
+      return !from || !toExclusive || from.getTime() < toExclusive.getTime();
+    },
+    {
+      message: '`from` must be before or equal to `to`',
+      path: ['from'],
+    }
+  );
 
 export type ResearchQuery = z.infer<typeof researchQuerySchema>;
 

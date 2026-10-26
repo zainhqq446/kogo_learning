@@ -71,6 +71,8 @@ services:
       # Empty = open registration, new devices stay "pending" until a researcher approves them.
       DEVICE_ENROLLMENT_KEY: ${DEVICE_ENROLLMENT_KEY:-}
       SYNC_MAX_CLOCK_SKEW_HOURS: ${SYNC_MAX_CLOCK_SKEW_HOURS:-24}
+      # Max stored sessions + attempts per pending (unapproved) device; beyond it sync returns 403 DEVICE_PENDING_QUOTA.
+      PENDING_DEVICE_MAX_ITEMS: ${PENDING_DEVICE_MAX_ITEMS:-20000}
       # --- Rate limits ---
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10}

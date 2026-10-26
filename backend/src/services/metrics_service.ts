@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { GAME_TYPES, MATERI_CODES, STT_GAME_TYPE, THESIS_TARGETS } from '../types/curriculum.js';
 import { ResearchQuery } from '../types/schemas.js';
 import { CsvColumn, csvHeader, csvRows, CsvValue } from '../utils/csv.js';
+import { resolveDateBounds } from '../utils/date_range.js';
 
 /**
  * Metrik pengujian lapangan (Tabel 3.1 proposal):
@@ -10,9 +11,9 @@ import { CsvColumn, csvHeader, csvRows, CsvValue } from '../utils/csv.js';
  * - avgResponseMs       = rata-rata responseMs percobaan `speaking`
  * - errorRate           = sesi dengan >= 1 error STT / sessionsStarted x 100
  *                         (Tabel 3.1: "(Error/Total Sesi) x 100%", target <= 10%)
- * - errorRatePerAttempt = sttErrors / sttAttempts x 100 (rumus yang dipakai
- *                         halaman riset di aplikasi; disediakan agar kedua angka
- *                         tidak tertukar dalam laporan)
+ * - errorRatePerAttempt = sttErrors / sttAttempts x 100 (diagnostik tambahan
+ *                         per percobaan, BUKAN metrik Tabel 3.1; halaman riset di
+ *                         aplikasi memakai errorRate per sesi di atas)
  */
 export interface Metrics {
   sttAttempts: number;
@@ -74,21 +75,14 @@ interface Counters {
   totalStars: number;
 }
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
  * `from` inklusif. `to` inklusif: tanggal saja (YYYY-MM-DD) mencakup seluruh
- * hari tersebut (UTC); datetime mencakup hingga milidetik tersebut.
+ * hari tersebut (UTC); datetime mencakup hingga milidetik tersebut. Batas
+ * dihitung oleh resolveDateBounds(), helper yang sama dengan validasi
+ * researchQuerySchema.
  */
 export function resolveRange(query: ResearchQuery): ResolvedRange {
-  const from = query.from ? new Date(DATE_ONLY.test(query.from) ? `${query.from}T00:00:00.000Z` : query.from) : null;
-  let toExclusive: Date | null = null;
-  if (query.to) {
-    toExclusive = DATE_ONLY.test(query.to)
-      ? new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + DAY_MS)
-      : new Date(new Date(query.to).getTime() + 1);
-  }
+  const { from, toExclusive } = resolveDateBounds(query.from, query.to);
   return { learnerUuid: query.learnerUuid?.toLowerCase() ?? null, from, toExclusive, devices: query.devices ?? 'approved' };
 }
 
@@ -341,7 +335,7 @@ const EXPORT_SESSIONS_SQL = `
          d.id::text AS device_id, d.label AS device_label, gs.materi_code AS materi, gs.node_index, gs.game_type, gs.status,
          gs.total_items, gs.first_try_correct, gs.stars, gs.started_at, gs.ended_at,
          CASE WHEN gs.ended_at IS NULL THEN NULL
-              ELSE ROUND(EXTRACT(EPOCH FROM (gs.ended_at - gs.started_at)))::int END AS duration_seconds,
+              ELSE GREATEST(0, ROUND(EXTRACT(EPOCH FROM (gs.ended_at - gs.started_at))))::int END AS duration_seconds,
          gs.synced_at, ${CURSOR_TS('gs.started_at')} AS cursor_ts
   FROM game_sessions gs
   JOIN learners l ON l.id = gs.learner_id

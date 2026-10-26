@@ -20,6 +20,7 @@ import {
 } from '../../types/schemas.js';
 import { GAME_TYPES, MATERI_CODES, REWARD_TIERS, SESSION_STATUSES } from '../../types/curriculum.js';
 import { vocabulary } from '../../services/reference_data_service.js';
+import { resolveRange } from '../../services/metrics_service.js';
 
 const UUID_A = '3f1c9a2e-5b7d-4c8e-9f0a-1b2c3d4e5f60';
 const UUID_B = '7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d';
@@ -162,19 +163,74 @@ test('schemas: NUL characters are rejected before they can reach PostgreSQL (220
   assert.equal(syncLearnerSchema.safeParse({ ...learner, name: 'Añi 😊' }).success, true);
 });
 
-test('schemas: device timestamps far in the future are rejected (default skew 24h)', () => {
+/** Nilai yang dipangkas harus sama dengan waktu server saat parse. */
+function nearNow(value: string | null | undefined, before: number): void {
+  assert.ok(typeof value === 'string', `expected a timestamp, got ${value}`);
+  const ms = Date.parse(value);
+  assert.ok(ms >= before && ms <= Date.now(), `${value} should be clamped to the server's current time`);
+}
+
+test('schemas: device timestamps far in the future are clamped to server time, not rejected (default skew 24h)', () => {
   const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const inTwoDays = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-  assert.equal(syncLearnerSchema.safeParse({ ...learner, updatedAt: inAnHour }).success, true, 'small clock skew tolerated');
-  assert.equal(syncLearnerSchema.safeParse({ ...learner, updatedAt: '2099-01-01T00:00:00.000Z' }).success, false);
-  assert.equal(syncLearnerSchema.safeParse({ ...learner, createdAt: inTwoDays }).success, false);
-  assert.equal(syncGameSessionSchema.safeParse({ ...session, startedAt: inTwoDays }).success, false);
-  assert.equal(syncGameSessionSchema.safeParse({ ...session, endedAt: inTwoDays }).success, false);
-  assert.equal(syncAnswerAttemptSchema.safeParse({ ...attempt, createdAt: inTwoDays }).success, false);
-  const res = syncLearnerSchema.safeParse({ ...learner, updatedAt: '2099-01-01T00:00:00.000Z' });
-  assert.ok(!res.success && res.error.issues[0].message.includes('future'));
-  // Jam perangkat yang tertinggal (masa lalu) tetap diterima.
-  assert.equal(syncLearnerSchema.safeParse({ ...learner, createdAt: '2000-01-01T00:00:00.000Z' }).success, true);
+
+  // Skew kecil ditoleransi apa adanya.
+  const small = syncLearnerSchema.parse({ ...learner, updatedAt: inAnHour });
+  assert.equal(small.updatedAt, inAnHour, 'small clock skew is kept unchanged');
+
+  const before = Date.now();
+  const far = syncLearnerSchema.safeParse({ ...learner, updatedAt: '2099-01-01T00:00:00.000Z', createdAt: inTwoDays });
+  assert.equal(far.success, true, 'far-future timestamps must not drop the learner');
+  if (far.success) {
+    nearNow(far.data.updatedAt, before);
+    nearNow(far.data.createdAt, before);
+  }
+  const s = syncGameSessionSchema.safeParse({ ...session, startedAt: inTwoDays, endedAt: '2099-12-31T23:59:59+15:00' });
+  assert.equal(s.success, true);
+  if (s.success) {
+    nearNow(s.data.startedAt, before);
+    nearNow(s.data.endedAt, before);
+  }
+  const a = syncAnswerAttemptSchema.safeParse({ ...attempt, createdAt: inTwoDays });
+  assert.equal(a.success, true);
+  if (a.success) nearNow(a.data.createdAt, before);
+  // endedAt null tetap null (tidak dipangkas menjadi waktu sekarang).
+  assert.equal(syncGameSessionSchema.parse({ ...session, endedAt: null }).endedAt, null);
+
+  // Jam perangkat yang tertinggal (masa lalu) tetap diterima apa adanya.
+  assert.equal(syncLearnerSchema.parse({ ...learner, createdAt: '2000-01-01T00:00:00.000Z' }).createdAt, '2000-01-01T00:00:00.000Z');
+  assert.equal(syncLearnerSchema.parse(learner).createdAt, NOW);
+});
+
+test('schemas: unstorable offsets are INVALID per item; reset device clocks are clamped', () => {
+  // Offset di dalam batas PostgreSQL (+/-15:59) diterima.
+  for (const ts of ['2026-10-25T08:00:00Z', '2026-10-25T08:00:00+07:00', '2026-10-25T08:00:00+15:59', '2026-10-25T08:00:00-15:00', '2026-10-25T08:00:00.123+05:30']) {
+    assert.equal(syncLearnerSchema.safeParse({ ...learner, createdAt: ts }).success, true, ts);
+  }
+  // Offset yang ditolak PostgreSQL dengan SQLSTATE 22009 tidak boleh lolos ke database.
+  for (const ts of ['2026-10-25T08:00:00+16:00', '2026-10-25T08:00:00-23:00', '2026-10-25T08:00:00+23:59']) {
+    const res = syncLearnerSchema.safeParse({ ...learner, createdAt: ts });
+    assert.equal(res.success, false, ts);
+    assert.ok(!res.success && /offset/.test(res.error.issues[0].message), ts);
+  }
+  assert.equal(syncGameSessionSchema.safeParse({ ...session, startedAt: '2026-10-25T08:00:00+18:00' }).success, false);
+  assert.equal(syncGameSessionSchema.safeParse({ ...session, endedAt: '2026-10-25T08:00:00-16:30' }).success, false);
+  assert.equal(syncAnswerAttemptSchema.safeParse({ ...attempt, createdAt: '2026-10-25T08:00:00+20:00' }).success, false);
+
+  // Jam tablet yang ter-reset (tahun 0000, 1970, sebelum 2000) dipangkas ke waktu server, bukan ditolak.
+  for (const ts of ['0000-01-01T00:00:00Z', '1970-01-01T00:00:00Z', '1999-12-31T23:59:59.999Z']) {
+    const before = Date.now();
+    const res = syncLearnerSchema.safeParse({ ...learner, updatedAt: ts });
+    assert.equal(res.success, true, ts);
+    if (res.success) nearNow(res.data.updatedAt, before);
+  }
+  const reset = syncGameSessionSchema.parse({ ...session, startedAt: '1970-01-01T00:00:00Z', endedAt: '1970-01-01T00:05:00Z' });
+  assert.ok(Date.parse(reset.startedAt) > Date.UTC(2020, 0, 1));
+  // endedAt tidak pernah mendahului startedAt setelah pemangkasan terpisah.
+  assert.ok(Date.parse(reset.endedAt as string) >= Date.parse(reset.startedAt));
+  const inThreeDays = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
+  const skewed = syncGameSessionSchema.parse({ ...session, startedAt: '2026-10-25T08:00:00.000Z', endedAt: inThreeDays });
+  assert.ok(Date.parse(skewed.endedAt as string) >= Date.parse(skewed.startedAt));
 });
 
 test('schemas: device registration accepts an optional deviceSecret of the issued shape', () => {
@@ -197,6 +253,38 @@ test('schemas: research query validates uuid and date range', () => {
   assert.equal(researchQuerySchema.safeParse({ from: '2026-11-01', to: '2026-10-01' }).success, false);
   assert.equal(researchQuerySchema.safeParse({ from: 'yesterday' }).success, false);
   assert.equal(researchQuerySchema.safeParse({ learnerUuid: 'abc' }).success, false);
+});
+
+test('schemas: research range uses the same bounds as resolveRange (date-only `to` = whole day)', () => {
+  const ok = (from: string, to: string) => {
+    const res = researchQuerySchema.safeParse({ from, to });
+    assert.equal(res.success, true, `${from} .. ${to} must be accepted`);
+    // Rentang yang diterima validasi juga tidak kosong menurut resolveRange().
+    const range = resolveRange(researchQuerySchema.parse({ from, to }));
+    assert.ok(range.from && range.toExclusive && range.from.getTime() < range.toExclusive.getTime(), `${from} .. ${to}`);
+  };
+  const bad = (from: string, to: string) => {
+    const res = researchQuerySchema.safeParse({ from, to });
+    assert.equal(res.success, false, `${from} .. ${to} must be rejected`);
+    assert.ok(!res.success && res.error.issues[0].path.join('.') === 'from');
+  };
+
+  // Datetime `from` + tanggal saja `to` pada hari yang sama (dulu ditolak keliru).
+  ok('2026-10-25T10:00:00Z', '2026-10-25');
+  ok('2026-10-25T23:59:59.999Z', '2026-10-25');
+  ok('2026-10-25T10:00:00+07:00', '2026-10-25');
+  ok('2026-10-25', '2026-10-25');
+  ok('2026-10-25', '2026-10-25T00:00:00Z');
+  ok('2026-10-25T08:00:00Z', '2026-10-25T08:00:00Z');
+  ok('2026-10-25T08:00:00+07:00', '2026-10-25T01:00:00Z');
+
+  // Tanggal saja = hari UTC: 2026-10-26T05:00+07:00 = 2026-10-25T22:00Z, masih hari 25.
+  ok('2026-10-26T05:00:00+07:00', '2026-10-25');
+
+  bad('2026-10-26T00:00:00Z', '2026-10-25');
+  bad('2026-10-26T08:00:00+07:00', '2026-10-25');
+  bad('2026-10-25T08:00:00.001Z', '2026-10-25T08:00:00Z');
+  bad('2026-10-26', '2026-10-25T23:59:59.999Z');
 });
 
 test('schemas: legacy batch arrays and pagination are bounded', () => {

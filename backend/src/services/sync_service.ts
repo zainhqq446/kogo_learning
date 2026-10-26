@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { ZodType } from 'zod';
+import { config } from '../config/env.js';
 import { ForbiddenError, UnauthorizedError } from '../types/errors.js';
 import {
   SyncAnswerAttempt,
@@ -97,6 +98,8 @@ const key = (uuid: string) => uuid.toLowerCase();
  *   payload tidak dihitung dua kali).
  * - Tabel stars (bintang terbaik per node) dan rewards (tier pertama tercapai)
  *   diperbarui setelah sesi diproses.
+ * - Perangkat `pending` dibatasi PENDING_DEVICE_MAX_ITEMS sesi + percobaan;
+ *   request yang melampauinya ditolak utuh (403 DEVICE_PENDING_QUOTA).
  */
 export class SyncService {
   constructor(private pool: Pool) {}
@@ -112,9 +115,9 @@ export class SyncService {
       await client.query('BEGIN');
 
       // Kunci baris perangkat: sinkronisasi paralel dari perangkat yang sama diserialkan.
-      const device = await client.query<{ revoked: boolean }>(
+      const device = await client.query<{ revoked: boolean; approved: boolean }>(
         `UPDATE app_devices SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1
-         RETURNING revoked_at IS NOT NULL AS revoked`,
+         RETURNING revoked_at IS NOT NULL AS revoked, approved_at IS NOT NULL AS approved`,
         [deviceId]
       );
       if (device.rowCount === 0) {
@@ -122,6 +125,9 @@ export class SyncService {
       }
       if (device.rows[0].revoked) {
         throw new ForbiddenError('This device has been revoked by a researcher.', 'DEVICE_REVOKED');
+      }
+      if (!device.rows[0].approved) {
+        await this.assertPendingQuota(client, deviceId, sessions, attempts);
       }
 
       const learnerMap = await this.loadLearners(client, [
@@ -165,6 +171,48 @@ export class SyncService {
       throw err;
     } finally {
       client.release();
+    }
+  }
+
+  /**
+   * Perangkat `pending` (belum disetujui) hanya boleh menyimpan sampai
+   * PENDING_DEVICE_MAX_ITEMS sesi + percobaan agar registrasi terbuka tidak
+   * bisa dipakai untuk mengisi database tanpa batas. Bila request ini akan
+   * melampaui batas, SELURUH request ditolak (tidak ada penulisan parsial;
+   * data tetap aman di tablet dan terkirim setelah perangkat disetujui).
+   * Dipanggil setelah baris perangkat dikunci sehingga sinkronisasi paralel
+   * dari perangkat yang sama tidak dapat melewati batas.
+   */
+  private async assertPendingQuota(
+    client: PoolClient,
+    deviceId: string,
+    sessions: Array<ParsedItem<SyncGameSession>>,
+    attempts: Array<ParsedItem<SyncAnswerAttempt>>
+  ): Promise<void> {
+    const limit = config.devices.pendingMaxItems;
+    const sessionKeys = Array.from(new Set(sessions.map((s) => s.key)));
+    const attemptKeys = Array.from(new Set(attempts.map((a) => a.key)));
+    // `known` = item kiriman ulang yang sudah tersimpan (tidak menambah data),
+    // sehingga kiriman ulang setelah respons hilang tidak ikut dihitung.
+    const counts = await client.query<{ stored: number; known: number }>(
+      `SELECT (SELECT COUNT(*) FROM game_sessions WHERE device_id = $1)::int
+            + (SELECT COUNT(*) FROM answer_attempts aa JOIN game_sessions gs ON gs.id = aa.session_id
+               WHERE gs.device_id = $1)::int AS stored,
+              (SELECT COUNT(*) FROM game_sessions WHERE client_uuid = ANY($2::uuid[]))::int
+            + (SELECT COUNT(*) FROM answer_attempts WHERE client_uuid = ANY($3::uuid[]))::int AS known`,
+      [deviceId, sessionKeys, attemptKeys]
+    );
+    const existing = counts.rows[0].stored;
+    const incoming = sessionKeys.length + attemptKeys.length - counts.rows[0].known;
+    if (existing + incoming > limit) {
+      logger.warn(
+        `[SyncV2] device=${deviceId} pending quota exceeded: stored=${existing} incoming=${incoming} limit=${limit}`
+      );
+      throw new ForbiddenError(
+        `This device is not approved yet and has reached the storage limit for unapproved devices (${limit} sessions + attempts). ` +
+          'Ask a researcher to approve the device; the data stays on the tablet and is sent after approval.',
+        'DEVICE_PENDING_QUOTA'
+      );
     }
   }
 
