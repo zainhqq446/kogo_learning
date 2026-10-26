@@ -1,3 +1,4 @@
+import '../helpers/test_env.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -5,7 +6,7 @@ import {
   SEED_LESSONS,
   buildExpectedSeedQuestions,
   CurriculumService,
-} from '../services/curriculum_service.js';
+} from '../../services/curriculum_service.js';
 
 test('Curriculum Seeding Specification & Logic Suite', async (t) => {
   await t.test('Seed definitions match exact target requirements', () => {
