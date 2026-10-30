@@ -40,9 +40,12 @@ kogo_learning/
   - *Cari Objek* (find the object starting with a letter), *Huruf Hilang* (missing letter),
     *Permainan Cocokkan* (match word to picture), *Dengar & Pilih* (listen and choose),
     *Isi Huruf Kosong* (fill the blanks).
-- **Indonesian voice with intonation** – Google TTS (`id-ID`) driven by a prosody planner that
-  splits text into phrases and adjusts pitch, rate and pauses per mood (greeting, question,
-  praise, encouragement, spelling, syllables). See `lib/services/audio/prosody_planner.dart`.
+- **Kogo's recorded voice** – every sentence, example word, letter name and syllable spelling
+  (861 clips) is recorded once with ElevenLabs in Indonesian and bundled in `assets/voice/`.
+  The app never calls ElevenLabs at runtime, so playing costs no credits and works offline.
+- **Indonesian device voice with intonation** – fallback when a sentence has no recording:
+  Google TTS (`id-ID`) driven by a prosody planner that adjusts pitch, rate and pauses per mood.
+  See `lib/services/audio/prosody_planner.dart`.
 - **Child-friendly motion and sound** – entrance/loop/press animations, confetti, star reveals,
   synthesized sound effects, background music that ducks while Kogo speaks or listens; all
   animations respect the system "remove animations" setting.
@@ -89,6 +92,22 @@ Optional visual check of every screen with real fonts:
 ```bash
 KOGO_SCREENSHOTS=/tmp/shots flutter test test/screenshots/screenshots_test.dart
 ```
+
+### Regenerating Kogo's voice
+
+The clip list is built from the same sentence functions the app uses, and the widget tests fail
+if the app says a sentence that is not in it. After changing any text in
+`lib/services/audio/voice_lines.dart` or the vocabulary:
+
+```bash
+dart run tool/voice_catalog.dart > build/voice_catalog.json
+python3 tool/generate_voice.py --voice cgSgspJ2msm6clMCkdW9 --dry-run   # characters to be billed
+ELEVENLABS_API_KEY=<key with Text to Speech permission> \
+  python3 tool/generate_voice.py --voice cgSgspJ2msm6clMCkdW9
+```
+
+Only new or changed sentences are sent to ElevenLabs; unused clips are removed. Never commit the
+API key or put it in the app. Model `eleven_turbo_v2_5` with `language_code=id`, voice "Jessica".
 
 ### Device requirements
 
