@@ -7,6 +7,8 @@ import '../../core/curriculum/vocabulary.dart';
 import 'audio_service.dart';
 import 'indonesian_text.dart';
 import 'prosody_planner.dart';
+import 'voice_clips.dart';
+import 'voice_keys.dart';
 
 /// Mesin TTS yang dapat diganti (diuji dengan implementasi palsu).
 abstract class SpeechEngine {
@@ -92,6 +94,8 @@ class VoiceService extends ChangeNotifier {
   static VoiceService instance = VoiceService(FlutterTtsEngine());
 
   SpeechEngine _engine;
+  VoiceClips _clips = VoiceClips.empty;
+  ClipPlayer? _clipPlayer;
   Future<bool>? _initializing;
   bool _available = true;
   int _generation = 0;
@@ -102,10 +106,23 @@ class VoiceService extends ChangeNotifier {
   /// `false` bila perangkat belum memiliki suara bahasa Indonesia.
   bool get indonesianAvailable => _available;
 
+  /// Kalimat yang belum memiliki rekaman sehingga diucapkan TTS perangkat.
+  @visibleForTesting
+  final Set<String> missingClips = {};
+
+  /// Jumlah klip rekaman yang tersedia (0 = memakai TTS perangkat).
+  int get clipCount => _clips.length;
+
   @visibleForTesting
   void useEngine(SpeechEngine engine) {
     _engine = engine;
     _initializing = null;
+  }
+
+  /// Memakai rekaman suara Kogo; kalimat tanpa rekaman tetap memakai TTS.
+  void useClips(VoiceClips clips, ClipPlayer player) {
+    _clips = clips;
+    _clipPlayer = player;
   }
 
   Future<bool> init() => _initializing ??= _engine.init().then((ok) => _available = ok);
@@ -113,17 +130,23 @@ class VoiceService extends ChangeNotifier {
   /// Mengucapkan teks dengan suasana [mood]. [emphasize] = kata target yang
   /// diucapkan pelan & jelas sebagai contoh pelafalan.
   Future<void> say(String text, {SpeechMood mood = SpeechMood.warm, String? emphasize}) {
+    final files = _lookup(VoiceKeys.sentences(text).map(VoiceKeys.key));
+    if (files != null) return _runClips(files);
     return _run(ProsodyPlanner.plan(text, mood: mood, emphasize: emphasize));
   }
 
   /// Contoh pelafalan per suku kata: "ke … lin … ci … kelinci!".
   Future<void> spell(VocabItem item) {
     if (item.isLetter) return sayLetter(item.text);
+    final files = _lookup([VoiceKeys.spell(item)]);
+    if (files != null) return _runClips(files);
     return _run(ProsodyPlanner.syllables(item.syllables, item.text));
   }
 
   /// Mengucapkan nama huruf dalam bahasa Indonesia (contoh "be", "ce").
   Future<void> sayLetter(String letter) {
+    final files = _lookup([VoiceKeys.letter(letter)]);
+    if (files != null) return _runClips(files);
     final name = IndonesianText.letterNames[letter.toLowerCase()] ?? letter;
     return _run([SpeechChunk(name, pitch: ProsodyPlanner.targetPitch, rate: ProsodyPlanner.targetRate, pauseAfterMs: 200)]);
   }
@@ -131,6 +154,8 @@ class VoiceService extends ChangeNotifier {
   /// Ucapan kata target saja (lambat & jelas).
   Future<void> sayWord(VocabItem item) {
     if (item.isLetter) return sayLetter(item.text);
+    final files = _lookup([VoiceKeys.word(item)]);
+    if (files != null) return _runClips(files);
     return _run([SpeechChunk('${item.text}.', pitch: ProsodyPlanner.targetPitch, rate: ProsodyPlanner.targetRate, pauseAfterMs: 200)]);
   }
 
@@ -138,6 +163,37 @@ class VoiceService extends ChangeNotifier {
     _generation++;
     await _safeStop();
     _setSpeaking(false);
+  }
+
+  List<String>? _lookup(Iterable<String> keys) {
+    if (_clips.isEmpty || _clipPlayer == null) return null;
+    final list = keys.toList();
+    final files = _clips.lookup(list);
+    if (files == null) missingClips.addAll(list.where((k) => _clips.lookup([k]) == null));
+    return files;
+  }
+
+  /// Memutar rekaman kalimat demi kalimat dengan jeda pendek.
+  Future<void> _runClips(List<String> files) async {
+    final generation = ++_generation;
+    final player = _clipPlayer!;
+    await _safeStop();
+    if (generation != _generation) return;
+    _setSpeaking(true);
+    AudioService.instance.duck();
+    try {
+      for (var i = 0; i < files.length; i++) {
+        if (generation != _generation) return;
+        await player.play(files[i]);
+        if (generation != _generation) return;
+        if (i < files.length - 1) await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    } catch (e) {
+      debugPrint('[VoiceService] gagal memutar rekaman: $e');
+    } finally {
+      AudioService.instance.unduck();
+      if (generation == _generation) _setSpeaking(false);
+    }
   }
 
   Future<void> _run(List<SpeechChunk> chunks) async {
@@ -173,6 +229,9 @@ class VoiceService extends ChangeNotifier {
   Future<void> _safeStop() async {
     try {
       await _engine.stop();
+    } catch (_) {}
+    try {
+      await _clipPlayer?.stop();
     } catch (_) {}
   }
 

@@ -41,7 +41,8 @@ class VoiceLines {
   VoiceLine noSpeech() => _pick('noSpeech', _noSpeech, SpeechMood.gentle);
   VoiceLine streak() => _pick('streak', _streak, SpeechMood.excited);
 
-  static VoiceLine greeting(String name) => VoiceLine('Halo, $name! Aku Kogo. Ayo kita belajar kata bersama!', SpeechMood.playful);
+  /// Tanpa nama anak agar dapat direkam sekali; nama tetap tampil di layar.
+  static VoiceLine greeting() => const VoiceLine('Halo, teman! Aku Kogo. Ayo kita belajar kata bersama!', SpeechMood.playful);
 
   static VoiceLine welcomeNew() => const VoiceLine('Halo! Aku Kogo. Siapa namamu? Minta bantuan Ayah atau Bunda untuk mengisi, ya!', SpeechMood.warm);
 
@@ -87,5 +88,20 @@ class VoiceLines {
 
   static VoiceLine rewardsPage(int stars) => stars == 0
       ? const VoiceLine('Kumpulkan bintang untuk membuka hadiah, ya!', SpeechMood.warm)
-      : VoiceLine('Kamu sudah mengumpulkan $stars bintang. Hebat!', SpeechMood.excited);
+      : const VoiceLine('Wah, bintangmu sudah terkumpul. Hebat! Ayo kumpulkan lagi!', SpeechMood.excited);
+
+  static const allMatched = VoiceLine('Sempurna! Semua cocok!', SpeechMood.celebratory);
+  static const voiceCheck = VoiceLine('Halo! Aku Kogo. Apakah suaraku terdengar jelas?', SpeechMood.playful);
+
+  /// "Hebat! bola!" — pujian lalu kata yang benar.
+  static String praiseWithWord(VoiceLine line, String word) => '${line.text} $word!';
+
+  /// "Bola! Hebat!" — kata yang dipilih lalu pujian.
+  static String wordThenLine(String word, VoiceLine line) => '$word! ${line.text}';
+
+  /// "Itu bola. Coba lagi, ya!" — menyebut pilihan yang salah.
+  static String thatIs(String word, VoiceLine line) => 'Itu $word. ${line.text}';
+
+  /// Semua kalimat acak (untuk daftar rekaman).
+  static List<String> get pooledTexts => [..._correct, ..._wrong, ..._almost, ..._noSpeech, ..._streak];
 }

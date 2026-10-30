@@ -89,7 +89,7 @@ class _FillBlankGameState extends State<FillBlankGame> {
     if (correct) {
       AudioService.instance.play(Sfx.correct);
       final line = _lines.correct();
-      await VoiceService.instance.say('${line.text} ${round.item.text}!', mood: line.mood);
+      await VoiceService.instance.say(VoiceLines.praiseWithWord(line, round.item.text), mood: line.mood);
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (mounted) await _advance();
     } else {

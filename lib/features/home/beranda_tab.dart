@@ -24,8 +24,7 @@ class BerandaTab extends StatelessWidget {
   ];
 
   void _greet() {
-    final name = AppSession.instance.learner?.firstName ?? 'teman';
-    final line = VoiceLines.greeting(name);
+    final line = VoiceLines.greeting();
     unawaited(VoiceService.instance.say(line.text, mood: line.mood));
   }
 

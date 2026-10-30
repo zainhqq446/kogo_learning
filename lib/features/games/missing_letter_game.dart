@@ -70,7 +70,7 @@ class _MissingLetterGameState extends State<MissingLetterGame> {
       });
       final line = _lines.correct();
       final word = round.item.letter?.text ?? round.item.text;
-      await VoiceService.instance.say('${line.text} $word!', mood: line.mood);
+      await VoiceService.instance.say(VoiceLines.praiseWithWord(line, word), mood: line.mood);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (mounted) await _advance();
     } else {

@@ -1,10 +1,22 @@
 import 'dart:async';
 
 import 'package:kogo_voice_learning/services/audio/prosody_planner.dart';
+import 'package:kogo_voice_learning/services/audio/voice_clips.dart';
 import 'package:kogo_voice_learning/services/audio/voice_service.dart';
 import 'package:kogo_voice_learning/services/speech/speech_listener.dart';
 
 /// Mesin TTS senyap untuk test; mencatat semua potongan ucapan.
+/// Pemutar klip palsu: mencatat berkas yang diputar.
+class FakeClipPlayer implements ClipPlayer {
+  final List<String> played = [];
+
+  @override
+  Future<void> play(String file) async => played.add(file);
+
+  @override
+  Future<void> stop() async {}
+}
+
 class SilentSpeechEngine implements SpeechEngine {
   SilentSpeechEngine({this.available = true});
 

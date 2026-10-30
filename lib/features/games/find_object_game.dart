@@ -66,7 +66,7 @@ class _FindObjectGameState extends State<FindObjectGame> {
       AudioService.instance.play(Sfx.correct);
       setState(() => _correct = option.text);
       final line = _lines.correct();
-      await VoiceService.instance.say('${_nameOf(option)}! ${line.text}', mood: line.mood);
+      await VoiceService.instance.say(VoiceLines.wordThenLine(_nameOf(option), line), mood: line.mood);
       await Future<void>.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
       await _advance();
@@ -77,7 +77,7 @@ class _FindObjectGameState extends State<FindObjectGame> {
         _shake++;
       });
       final line = _lines.wrong();
-      unawaited(VoiceService.instance.say('Itu ${_nameOf(option)}. ${line.text}', mood: line.mood));
+      unawaited(VoiceService.instance.say(VoiceLines.thatIs(_nameOf(option), line), mood: line.mood));
     }
   }
 

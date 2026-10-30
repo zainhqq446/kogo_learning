@@ -10,7 +10,7 @@ import '../../core/widgets/kogo_widgets.dart';
 import '../../data/app_settings.dart';
 import '../../data/progress_repository.dart';
 import '../../services/audio/audio_service.dart';
-import '../../services/audio/prosody_planner.dart';
+import '../../services/audio/voice_lines.dart';
 import '../../services/audio/voice_service.dart';
 import '../../services/speech/speech_listener.dart';
 import '../../services/sync/sync_service.dart';
@@ -216,6 +216,19 @@ class _ResearchPageState extends State<ResearchPage> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
+                      VoiceService.instance.clipCount > 0 ? Icons.check_circle_rounded : Icons.info_rounded,
+                      color: VoiceService.instance.clipCount > 0 ? KogoColors.green500 : KogoColors.orange500,
+                    ),
+                    title: const Text('Rekaman Suara Kogo'),
+                    subtitle: Text(
+                      VoiceService.instance.clipCount > 0
+                          ? '${VoiceService.instance.clipCount} rekaman; kalimat lain memakai TTS perangkat'
+                          : 'Belum ada rekaman — memakai TTS perangkat',
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
                       VoiceService.instance.indonesianAvailable ? Icons.check_circle_rounded : Icons.error_rounded,
                       color: VoiceService.instance.indonesianAvailable ? KogoColors.green500 : KogoColors.red500,
                     ),
@@ -226,7 +239,7 @@ class _ResearchPageState extends State<ResearchPage> {
                     spacing: 8,
                     children: [
                       OutlinedButton(
-                        onPressed: () => unawaited(VoiceService.instance.say('Halo! Aku Kogo. Apakah suaraku terdengar jelas?', mood: SpeechMood.playful)),
+                        onPressed: () => unawaited(VoiceService.instance.say(VoiceLines.voiceCheck.text, mood: VoiceLines.voiceCheck.mood)),
                         child: const Text('Tes Suara'),
                       ),
                       OutlinedButton(onPressed: () => unawaited(SystemSettings.openTtsSettings()), child: const Text('Pengaturan Suara')),

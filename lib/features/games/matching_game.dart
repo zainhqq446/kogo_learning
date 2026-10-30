@@ -8,7 +8,6 @@ import '../../core/motion/motion.dart';
 import '../../core/theme/kogo_colors.dart';
 import '../../core/widgets/kogo_widgets.dart';
 import '../../services/audio/audio_service.dart';
-import '../../services/audio/prosody_planner.dart';
 import '../../services/audio/voice_lines.dart';
 import '../../services/audio/voice_service.dart';
 import 'game_content.dart';
@@ -105,7 +104,7 @@ class _MatchingGameState extends State<MatchingGame> {
   Future<void> _finish() async {
     setState(() => _celebrate = true);
     AudioService.instance.play(Sfx.star);
-    await VoiceService.instance.say('Sempurna! Semua cocok!', mood: SpeechMood.celebratory);
+    await VoiceService.instance.say(VoiceLines.allMatched.text, mood: VoiceLines.allMatched.mood);
     await Future<void>.delayed(const Duration(milliseconds: 800));
     if (mounted) await widget.props.onComplete();
   }

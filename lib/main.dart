@@ -8,12 +8,15 @@ import 'core/theme/kogo_theme.dart';
 import 'data/app_settings.dart';
 import 'features/splash/splash_page.dart';
 import 'services/audio/audio_service.dart';
+import 'services/audio/voice_clips.dart';
 import 'services/audio/voice_service.dart';
 import 'services/sync/sync_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // Rekaman suara Kogo (ElevenLabs) yang dibundel; tanpa rekaman memakai TTS.
+  VoiceService.instance.useClips(await VoiceClips.load(rootBundle), AudioClipPlayer());
   runApp(const KogoApp());
 }
 
