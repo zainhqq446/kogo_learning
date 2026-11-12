@@ -16,8 +16,8 @@ import {
  * Semua string dari klien divalidasi bebas NUL agar item rusak ditolak per
  * item (400 / INVALID) dan tidak pernah menggagalkan seluruh transaksi.
  */
-const NO_NUL = /^[^\u0000]*$/;
-const text = () => z.string().regex(NO_NUL, 'must not contain NUL (U+0000) characters');
+const text = () =>
+  z.string().refine((value) => !value.includes('\u0000'), 'must not contain NUL (U+0000) characters');
 
 /**
  * UUID 8-4-4-4-12 heksadesimal (sesuai tipe `uuid` PostgreSQL). Sengaja tidak

@@ -73,7 +73,9 @@ export async function seedReferenceData(client: PoolClient, data: VocabularyFile
       result.materi += 1;
     }
 
-    const categories = Array.from(new Set(data.materi.flatMap((m) => m.words.map((w) => w.category)))).sort();
+    const categories = Array.from(new Set(data.materi.flatMap((m) => m.words.map((w) => w.category)))).sort((a, b) =>
+      a.localeCompare(b)
+    );
     for (const code of categories) {
       await client.query(
         `INSERT INTO word_types (code, title) VALUES ($1, $2)

@@ -19,7 +19,7 @@ export interface TtsCacheKeyInput {
  */
 export function ttsCacheKey(input: TtsCacheKeyInput): string {
   const sortedSettings = Object.keys(input.settings)
-    .sort()
+    .sort((a, b) => a.localeCompare(b, 'en'))
     .map((k) => `${k}=${input.settings[k]}`)
     .join(',');
   const material = [

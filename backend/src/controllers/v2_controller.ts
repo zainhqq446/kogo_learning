@@ -12,8 +12,11 @@ import {
   syncRequestSchema,
 } from '../types/schemas.js';
 
-function csvFilename(kind: string): string {
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+export function csvFilename(kind: string, now: Date = new Date()): string {
+  const iso = now.toISOString();
+  const dot = iso.indexOf('.');
+  const base = dot === -1 ? iso : iso.slice(0, dot);
+  const stamp = base.replace(/[-:]/g, '').replace('T', '-');
   return `kogo-${kind}-${stamp}.csv`;
 }
 

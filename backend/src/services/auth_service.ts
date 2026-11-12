@@ -194,12 +194,12 @@ export type AdminBootstrapResult = 'created' | 'updated' | 'unchanged' | 'skippe
  */
 export async function ensureAdminUser(
   client: Pool | PoolClient,
-  credentials: { username?: string; password?: string } = {
-    username: config.auth.adminUsername,
-    password: config.auth.adminPassword,
-  }
+  credentials?: { username?: string; password?: string }
 ): Promise<AdminBootstrapResult> {
-  const { username, password } = credentials;
+  const {
+    username = config.auth.adminUsername,
+    password = config.auth.adminPassword,
+  } = credentials ?? {};
   if (!username || !password) return 'skipped';
 
   const cleanUsername = username.trim().toLowerCase();

@@ -51,13 +51,13 @@ export function deviceToken(deviceId = '00000000-0000-4000-8000-0000000000d1'): 
  * aktif dengan role-nya, dan setiap perangkat dianggap disetujui kecuali diatur.
  */
 export function testPrincipals(
-  overrides: { users?: Record<string, UserState | null>; devices?: Record<string, DeviceState | null> } = {}
+  overrides?: { users?: Record<string, UserState | null>; devices?: Record<string, DeviceState | null> }
 ): PrincipalStore {
   const users = new Map<string, UserState | null>(
     Object.entries(TEST_USER_IDS).map(([role, id]) => [id, { role: role as UserRole, isActive: true }])
   );
-  for (const [id, state] of Object.entries(overrides.users ?? {})) users.set(id, state);
-  const devices = new Map<string, DeviceState | null>(Object.entries(overrides.devices ?? {}));
+  for (const [id, state] of Object.entries(overrides?.users ?? {})) users.set(id, state);
+  const devices = new Map<string, DeviceState | null>(Object.entries(overrides?.devices ?? {}));
   return {
     async getUser(userId) {
       return users.has(userId) ? (users.get(userId) ?? null) : null;
@@ -69,8 +69,8 @@ export function testPrincipals(
 }
 
 /** Token dengan payload/opsi bebas (untuk menguji penolakan token). */
-export function rawToken(payload: object, options: jwt.SignOptions = { algorithm: 'HS256', expiresIn: 600 }): string {
-  return jwt.sign(payload, TEST_JWT_SECRET, options);
+export function rawToken(payload: object, options?: jwt.SignOptions): string {
+  return jwt.sign(payload, TEST_JWT_SECRET, options ?? { algorithm: 'HS256', expiresIn: 600 });
 }
 
 export function bearer(token: string): Record<string, string> {
@@ -81,11 +81,11 @@ export async function postJson(
   baseUrl: string,
   path: string,
   body: unknown,
-  headers: Record<string, string> = {}
+  headers?: Record<string, string>
 ): Promise<{ status: number; body: any; headers: Headers }> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -101,9 +101,9 @@ export async function postJson(
 export async function getJson(
   baseUrl: string,
   path: string,
-  headers: Record<string, string> = {}
+  headers?: Record<string, string>
 ): Promise<{ status: number; body: any; headers: Headers; text: string }> {
-  const res = await fetch(`${baseUrl}${path}`, { headers });
+  const res = await fetch(`${baseUrl}${path}`, { headers: headers ?? {} });
   const text = await res.text();
   let parsed: unknown = text;
   try {

@@ -80,6 +80,19 @@ test('tts cache key is deterministic and sensitive to every input', () => {
   // Urutan properti settings tidak berpengaruh.
   const reordered = { use_speaker_boost: true, speed: 0.95, style: 0.4, similarity_boost: 0.8, stability: 0.45 };
   assert.equal(ttsCacheKey({ ...baseKey, settings: reordered }), key);
+  // Konsistensi backward-compatibility dengan pengurutan nama kunci ASCII standar.
+  const canonicalKey = ttsCacheKey({
+    ...baseKey,
+    settings: {
+      similarity_boost: 0.8,
+      speed: 0.95,
+      stability: 0.45,
+      style: 0.4,
+      use_speaker_boost: true,
+    },
+  });
+  assert.equal(key, canonicalKey);
+  assert.equal(key, 'efd69447b01668c015ccb601ab5a58e9b52cf8fc014bbf08f3963a086b414c8a');
   assert.notEqual(ttsCacheKey({ ...baseKey, text: 'Ayo ucapkan buku' }), key);
   assert.notEqual(ttsCacheKey({ ...baseKey, voiceId: 'voiceB' }), key);
   assert.notEqual(ttsCacheKey({ ...baseKey, modelId: 'eleven_flash_v2_5' }), key);

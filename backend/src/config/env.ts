@@ -243,6 +243,14 @@ function readAppVersion(env: Env): string {
   return str(env, 'APP_VERSION') ?? '2.0.0';
 }
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
 /**
  * Membaca dan memvalidasi konfigurasi dari environment. Fungsi murni agar bisa
  * diuji tanpa mengubah `process.env`.
@@ -263,7 +271,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
   const port = parseIntInRange(str(env, 'PORT'), 4000, 'PORT', 1, 65535, issues);
   let apiPrefix = str(env, 'API_PREFIX') ?? '/api';
   if (!apiPrefix.startsWith('/')) apiPrefix = `/${apiPrefix}`;
-  apiPrefix = apiPrefix.replace(/\/+$/, '') || '/api';
+  apiPrefix = stripTrailingSlashes(apiPrefix) || '/api';
 
   const host = str(env, 'HOST') ?? (isProduction ? '0.0.0.0' : '127.0.0.1');
 
@@ -360,7 +368,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
   }
 
   // --- ElevenLabs ---
-  const baseUrl = (str(env, 'ELEVENLABS_BASE_URL') ?? 'https://api.elevenlabs.io/v1').replace(/\/+$/, '');
+  const baseUrl = stripTrailingSlashes(str(env, 'ELEVENLABS_BASE_URL') ?? 'https://api.elevenlabs.io/v1');
   if (!/^https?:\/\//.test(baseUrl) || (isProduction && !baseUrl.startsWith('https://'))) {
     issues.push('ELEVENLABS_BASE_URL must be an https:// URL');
   }
