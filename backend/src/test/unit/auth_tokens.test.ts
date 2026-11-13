@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../../app.js';
+import { ensureAdminUser } from '../../services/auth_service.js';
+import type { PoolClient } from 'pg';
 import {
   generateUserTokens,
   signAccessToken,
@@ -184,4 +186,21 @@ test('auth middleware over HTTP enforces token types and roles', async (t) => {
     assert.equal((await getJson(base, '/api/auth/me', bearer(unknownUser))).status, 401);
     assert.equal(TEST_USER_IDS.admin.length, 36);
   });
+});
+
+test('ensureAdminUser: skips when omitted and creates/updates admin with mock client', async () => {
+  const noopClient = { query: async () => ({ rowCount: 0, rows: [] }) } as unknown as PoolClient;
+  assert.equal(await ensureAdminUser(noopClient), 'skipped');
+
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  const createClient = {
+    query: async (sql: string, params?: unknown[]) => {
+      queries.push({ sql, params });
+      return queries.length === 1 ? { rowCount: 0, rows: [] } : { rowCount: 1, rows: [] };
+    },
+  } as unknown as PoolClient;
+  const created = await ensureAdminUser(createClient, { username: 'Admin_Test', password: 'StrongPassword!123' });
+  assert.equal(created, 'created');
+  assert.equal(queries.length, 2);
+  assert.equal(queries[0].params?.[0], 'admin_test');
 });

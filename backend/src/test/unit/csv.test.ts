@@ -2,6 +2,7 @@ import '../helpers/test_env.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { escapeCsvCell, toCsv, toCsvRow, UTF8_BOM } from '../../utils/csv.js';
+import { csvFilename } from '../../controllers/v2_controller.js';
 
 test('csv: plain values are not quoted', () => {
   assert.equal(escapeCsvCell('buku'), 'buku');
@@ -71,4 +72,10 @@ test('csv: document has UTF-8 BOM, header row and CRLF line endings', () => {
   assert.ok(csv.startsWith(UTF8_BOM));
   assert.equal(csv, `${UTF8_BOM}name,age\r\nAni,5\r\n'=cmd,6\r\n`);
   assert.equal(toCsvRow(['a', null, 'b,c']), 'a,,"b,c"');
+});
+
+test('csvFilename: formats deterministic UTC timestamp without fractional seconds', () => {
+  const fixed = new Date('2026-10-25T08:09:10.987Z');
+  assert.equal(csvFilename('attempts', fixed), 'kogo-attempts-20261025-080910.csv');
+  assert.equal(csvFilename('sessions', fixed), 'kogo-sessions-20261025-080910.csv');
 });

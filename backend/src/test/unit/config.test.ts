@@ -207,3 +207,14 @@ test('config helpers: TRUST_PROXY, CORS_ORIGIN and durations', () => {
   assert.throws(() => parseDurationSeconds('0s'));
   assert.throws(() => parseDurationSeconds('1w'));
 });
+
+test('config: API_PREFIX and ELEVENLABS_BASE_URL strip trailing slashes linearly', () => {
+  const cfg = loadConfig({
+    NODE_ENV: 'test',
+    API_PREFIX: 'v2///',
+    ELEVENLABS_BASE_URL: `https://api.elevenlabs.io/v1${'/'.repeat(500)}`,
+  });
+  assert.equal(cfg.server.apiPrefix, '/v2');
+  assert.equal(cfg.elevenlabs.baseUrl, 'https://api.elevenlabs.io/v1');
+  assert.equal(loadConfig({ NODE_ENV: 'test', API_PREFIX: '///' }).server.apiPrefix, '/api');
+});

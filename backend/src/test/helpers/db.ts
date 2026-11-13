@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Pool, PoolConfig } from 'pg';
 import { runStartupTasks } from '../../services/startup_service.js';
 import { signAccessToken } from '../../services/token_service.js';
@@ -65,7 +66,7 @@ export async function truncateAll(pool: Pool): Promise<void> {
 export async function createUserWithToken(
   pool: Pool,
   role: UserRole,
-  username = `${role}_${Math.random().toString(36).slice(2, 10)}`
+  username = `${role}_${crypto.randomBytes(4).toString('hex')}`
 ): Promise<{ id: string; token: string }> {
   const res = await pool.query<{ id: string }>(
     `INSERT INTO users (username, password_hash, full_name, role) VALUES ($1, 'x', 'Test User', $2) RETURNING id`,

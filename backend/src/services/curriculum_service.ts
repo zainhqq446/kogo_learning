@@ -343,9 +343,9 @@ export class CurriculumService {
     const lessonsCountRes = await client.query<{ count: string }>('SELECT COUNT(*) as count FROM lessons');
     const questionsCountRes = await client.query<{ count: string }>('SELECT COUNT(*) as count FROM questions');
 
-    const stagesTotal = parseInt(stagesCountRes.rows[0].count, 10);
-    const lessonsTotal = parseInt(lessonsCountRes.rows[0].count, 10);
-    const questionsTotal = parseInt(questionsCountRes.rows[0].count, 10);
+    const stagesTotal = Number.parseInt(stagesCountRes.rows[0].count, 10);
+    const lessonsTotal = Number.parseInt(lessonsCountRes.rows[0].count, 10);
+    const questionsTotal = Number.parseInt(questionsCountRes.rows[0].count, 10);
 
     const alreadySeeded = insertedStages === 0 && insertedLessons === 0 && insertedQuestions === 0;
 

@@ -11,6 +11,7 @@ Clips that already exist are reused, so re-running only pays for new or
 changed sentences. The API key is read from the environment and never stored.
 """
 
+from pathlib import Path
 import argparse
 import concurrent.futures
 import hashlib
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.request
 
 API = "https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_22050_32"
+CLIP_FILENAME_RE = re.compile(r"^[a-f0-9]{16}\.mp3$")
 
 # Child-friendly delivery: expressive sentences, slower and clearer target words.
 SETTINGS = {
@@ -40,9 +42,41 @@ class QuotaError(Exception):
     pass
 
 
+def resolve_workspace_path(raw_path, base_dir=None, *, expect_file=False):
+    root = Path(base_dir or os.getcwd()).resolve()
+    lexical_root = Path(os.path.abspath(base_dir or os.getcwd()))
+    candidate = Path(raw_path)
+    lexical = Path(os.path.abspath(lexical_root / candidate if not candidate.is_absolute() else candidate))
+    if not lexical.is_relative_to(lexical_root):
+        raise ValueError(f"Path '{raw_path}' escapes allowed directory '{root}'")
+
+    resolved = lexical.resolve()
+    allowed_roots = [root]
+    build_dir = lexical_root / "build"
+    if lexical.is_relative_to(build_dir) and build_dir.exists():
+        allowed_roots.append(build_dir.resolve())
+
+    if not any(resolved.is_relative_to(allowed) for allowed in allowed_roots):
+        raise ValueError(f"Path '{raw_path}' escapes allowed directory '{root}'")
+    if expect_file and resolved in allowed_roots:
+        raise ValueError(f"Path '{raw_path}' must point to a file inside '{root}'")
+    return resolved
+
+
+def resolve_output_file(out_dir, filename):
+    if not CLIP_FILENAME_RE.match(filename):
+        raise ValueError(f"Invalid clip filename: {filename!r}")
+    root = Path(out_dir).resolve()
+    resolved = (root / filename).resolve()
+    if not resolved.is_relative_to(root) or resolved.parent != root:
+        raise ValueError(f"Clip path escapes output directory: {filename!r}")
+    return str(resolved)
+
+
 def clip_name(voice, model, entry):
     settings = json.dumps(SETTINGS[entry["kind"]], sort_keys=True)
-    digest = hashlib.sha1(f"{voice}|{model}|{settings}|{entry['kind']}|{entry['text']}".encode()).hexdigest()
+    # Non-cryptographic deterministic cache key used to map existing bundled assets in manifest.json.
+    digest = hashlib.sha1(f"{voice}|{model}|{settings}|{entry['kind']}|{entry['text']}".encode(), usedforsecurity=False).hexdigest()
     return digest[:16] + ".mp3"
 
 
@@ -130,12 +164,21 @@ def main():
     parser.add_argument("--retries", type=int, default=3, help="re-generations for clips with long pauses")
     args = parser.parse_args()
 
-    with open(args.catalog, encoding="utf-8") as f:
+    try:
+        catalog_path = resolve_workspace_path(args.catalog, expect_file=True)
+        out_dir = resolve_workspace_path(args.out)
+    except ValueError as error:
+        print(f"INVALID PATH: {error}", file=sys.stderr)
+        return 2
+
+    with open(catalog_path, encoding="utf-8") as f:
         catalog = json.load(f)
-    os.makedirs(args.out, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir_str = str(out_dir)
 
     clips = {e["key"]: clip_name(args.voice, args.model, e) for e in catalog}
-    todo = [e for e in catalog if not os.path.exists(os.path.join(args.out, clips[e["key"]]))]
+    paths = {k: resolve_output_file(out_dir_str, v) for k, v in clips.items()}
+    todo = [e for e in catalog if not os.path.exists(paths[e["key"]])]
     chars = sum(len(e["text"]) for e in todo)
     print(f"catalog: {len(catalog)} clips, to generate: {len(todo)} ({chars} characters)")
     if args.dry_run:
@@ -163,7 +206,7 @@ def main():
         except Exception as error:  # noqa: BLE001 - report and continue with the rest
             failures.append(f"{entry['key']}: {error}")
             return
-        path = os.path.join(args.out, clips[entry["key"]])
+        path = paths[entry["key"]]
         with open(path + ".tmp", "wb") as f:
             f.write(audio)
         os.replace(path + ".tmp", path)
@@ -180,7 +223,6 @@ def main():
     # contain a long pause, and keep the best take.
     if shutil.which("ffmpeg"):
         by_key = {e["key"]: e for e in catalog}
-        paths = {k: os.path.join(args.out, v) for k, v in clips.items()}
         with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
             list(pool.map(trim, [p for p in paths.values() if os.path.exists(p)]))
         bad = [k for k, p in paths.items() if os.path.exists(p) and badness(p, by_key[k]) > 0]
@@ -220,15 +262,16 @@ def main():
 
     # The manifest only lists clips that exist, so the app falls back to the
     # device voice for anything that is still missing.
-    available = {k: v for k, v in clips.items() if os.path.exists(os.path.join(args.out, v))}
+    available = {k: v for k, v in clips.items() if os.path.exists(paths[k])}
     manifest = {"voice_id": args.voice, "model_id": args.model, "clips": dict(sorted(available.items()))}
-    with open(os.path.join(args.out, "manifest.json"), "w", encoding="utf-8") as f:
+    manifest_path = out_dir / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
     referenced = set(available.values())
     removed = 0
-    for name in os.listdir(args.out):
-        if name.endswith(".mp3") and name not in referenced:
-            os.remove(os.path.join(args.out, name))
+    for child in out_dir.iterdir():
+        if child.is_file() and child.name.endswith(".mp3") and child.name not in referenced:
+            child.unlink()
             removed += 1
 
     print(f"generated {done['count']} clips ({done['cost']} credits); manifest has {len(available)}/{len(catalog)}; removed {removed} unused")
